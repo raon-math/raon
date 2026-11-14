@@ -253,8 +253,9 @@ let sess = LS.get('raon_sess');
 let loginTab = 'student', stab = 'home', ttab = 'dash', dirty = false;
 let modalFn = null;
 const isTyping = () => { const a = document.activeElement; return a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== 'checkbox'; };
-function scheduleRender() { if (isTyping()) { dirty = true; return; } render(); }
-document.addEventListener('focusout', () => setTimeout(() => { if (dirty && !isTyping()) { dirty = false; render(); } }, 60));
+let formDirty = false;
+function scheduleRender() { if (isTyping() || formDirty) { dirty = true; return; } render(); }
+document.addEventListener('focusout', () => setTimeout(() => { if (dirty && !isTyping() && !formDirty) { dirty = false; render(); } }, 60));
 
 function banner() {
   return loadNote && loaded ? `<div style="padding-top:12px"><div class="note">${esc(loadNote)}</div></div>` : '';
@@ -274,7 +275,7 @@ function render() {
 }
 function nav(items, cur, setter) {
   return `<nav class="bottom"><div class="in">${items.map(([k, ic, label]) =>
-    `<button class="${cur === k ? 'on' : ''}" onclick="${setter}='${k}';closeModal();render();scrollTo(0,0)"><b>${ic}</b>${label}</button>`).join('')}</div></nav>`;
+    `<button class="${cur === k ? 'on' : ''}" onclick="${setter}='${k}';formDirty=false;closeModal();render();scrollTo(0,0)"><b>${ic}</b>${label}</button>`).join('')}</div></nav>`;
 }
 
 
@@ -712,7 +713,19 @@ function toggleNotice(id) {
   const s = LS.get(seenKey()) || []; if (!s.includes(id)) { s.push(id); LS.set(seenKey(), s.slice(-200)); }
   render();
 }
-const clsBadge = cls => `<span class="badge ${cls ? 'b-blue' : 'b-gray'}">${esc(cls || '전체')}</span>`;
+const clsBadge = cls => cls ? String(cls).split(',').map(c => `<span class="badge b-blue">${esc(c)}</span>`).join(' ') : '<span class="badge b-gray">전체</span>';
+function clsMulti(id) {
+  return `<div class="chips" id="${id}" style="margin-top:0"><span class="chip on" data-c="" onclick="pickCls(this)">전체 학생</span>${classes().map(c => `<span class="chip" data-c="${esc(c)}" onclick="pickCls(this)">${esc(c)}</span>`).join('')}</div>
+    <div class="muted" style="margin-top:6px">반을 여러 개 고를 수 있어요.</div>`;
+}
+function pickCls(el) {
+  formDirty = true;
+  const box = el.parentNode, all = box.querySelector('[data-c=""]');
+  if (el === all) { box.querySelectorAll('.chip').forEach(x => x.classList.toggle('on', x === all)); return; }
+  el.classList.toggle('on'); all.classList.remove('on');
+  if (!box.querySelector('.chip.on')) all.classList.add('on');
+}
+const pickedCls = id => [...document.querySelectorAll('#' + id + ' .chip.on')].map(x => x.dataset.c).filter(Boolean).join(',');
 function imageCard(m, teacher) {
   const st = ensureImage(m);
   return `<div class="card"><div class="row between"><b class="grow">🗓️ ${esc(m.title || '분기 안내')}</b>${teacher ? clsBadge(m.cls) : '<span class="muted">눌러서 크게 보기</span>'}</div>
@@ -741,22 +754,23 @@ function zoomImage(id) {
 function tNotice() {
   const list = imgList();
   return `<div class="card"><b>분기 안내문 올리기</b>
-    <div class="muted">반마다 한 장씩 올릴 수 있어요. 학생은 <b>자기 반 이미지</b>와 <b>전체 학생용 이미지</b>를 함께 봐요. 같은 대상으로 다시 올리면 새 이미지로 바뀌어요.</div>
-    <label>대상</label>${clsSelect('nimgCls')}
+    <div class="muted">같은 요일 반들은 함께 골라서 한 장으로 올리면 돼요. 학생은 <b>자기 반 안내문</b>과 <b>전체 학생용 안내문</b>을 함께 봐요. 이미 안내문이 있는 반을 다시 고르면 그 반은 새 안내문으로 바뀌어요.</div>
+    <label>대상</label>${clsMulti('nimgCls')}
     <label>제목</label><input id="nimgTitle" placeholder="예: 2026년 4분기 휴원 안내">
-    <label>이미지 파일</label><input id="nimgFile" type="file" accept="${'image/' + '*'}">
+    <label>이미지 파일</label><input id="nimgFile" type="file" accept="${'image/' + '*'}" onchange="formDirty=true">
     <button class="btn primary full" ${imgBusy ? 'disabled' : ''} onclick="uploadImage()">${imgBusy ? '올리는 중…' : '이미지 올리기'}</button></div>
     ${list.length ? `<h2>올린 안내문 (${list.length})</h2>` + list.map(m => imageCard(m, true)).join('') : ''}
     <div class="card"><b>알림사항 쓰기</b>
-    <label>대상</label>${clsSelect('ncls')}
+    <label>대상</label>${clsMulti('ncls')}
     <label>제목</label><input id="ntitle" placeholder="예: 11월 셋째 주 보강 안내">
     <label>내용</label><textarea id="nbody" placeholder="학생들에게 전할 내용을 적어 주세요."></textarea>
     <button class="btn primary full" onclick="addNotice()">알림 올리기</button></div>
     ${noticeBlock(false)}`;
 }
 async function addNotice() {
-  const title = $('#ntitle').value.trim(), body = $('#nbody').value.trim(), cls = $('#ncls').value;
+  const title = $('#ntitle').value.trim(), body = $('#nbody').value.trim(), cls = pickedCls('ncls');
   if (!title) return toast('제목을 입력해 주세요.');
+  formDirty = false;
   try { await put('notices', uid(), { title, body, cls, at: Date.now() }); toast('알림을 올렸어요'); } catch (e) {}
 }
 async function delNotice(id) { try { await del('notices', id); toast('삭제했어요'); } catch (e) {} }
@@ -778,16 +792,16 @@ function shrinkImage(file) {
   });
 }
 async function uploadImage() {
-  const f = $('#nimgFile').files[0], title = $('#nimgTitle').value.trim() || '분기 안내', cls = $('#nimgCls').value;
+  const f = $('#nimgFile').files[0], title = $('#nimgTitle').value.trim() || '분기 안내', cls = pickedCls('nimgCls');
   if (!f) return toast('이미지 파일을 골라 주세요.');
-  imgBusy = true; render();
+  formDirty = false; imgBusy = true; render();
   try {
     const data = await shrinkImage(f);
     const r = await call('setImage', { title, cls, data });
     const m = r.meta;
     S.config.main = { ...cfg(), imgs: [...(cfg().imgs || []).filter(x => x.id !== m.id), m] };
     imgs[m.id] = { ver: m.ver, data }; LS.set('raon_img_' + m.id, { ver: m.ver, data });
-    toast((cls || '전체') + ' 안내문을 올렸어요');
+    toast((cls ? cls.split(',').join(', ') : '전체') + ' 안내문을 올렸어요'); load(true);
   } catch (e) { toast(e.message); }
   imgBusy = false; render();
 }
