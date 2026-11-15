@@ -165,13 +165,31 @@ const isIOS = () => new RegExp('iphone|ipad|ipod', 'i').test(navigator.userAgent
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (!sess) render(); });
 window.addEventListener('appinstalled', () => { installEvt = null; toast('앱을 설치했어요!'); });
 async function installApp() { if (!installEvt) return; installEvt.prompt(); try { await installEvt.userChoice; } catch (e) {} installEvt = null; render(); }
+const UA = navigator.userAgent || '';
+const isKakao = () => new RegExp('KAKAOTALK', 'i').test(UA);
+const isInApp = () => isKakao() || new RegExp('NAVER\\(inapp|Instagram|FBAN|FBAV|Line\\/|DaumApps|everytimeApp', 'i').test(UA);
+const KAKAO_EXT = 'kakaotalk:' + String.fromCharCode(47, 47) + 'web/openExternal?url=';
+function openExternal() { location.href = KAKAO_EXT + encodeURIComponent(location.href.split('#')[0]); }
+function inAppBox() {
+  return `<div class="note" style="margin-top:16px;line-height:1.6">
+    <b>📲 지금은 ${isKakao() ? '카카오톡' : '앱'} 안의 브라우저라서 앱 설치가 안 돼요.</b><br>
+    ${isKakao() ? `<button class="btn amber full" style="margin:10px 0 8px" onclick="openExternal()">기본 브라우저로 열기</button>` : ''}
+    ${isIOS() ? '오른쪽 아래 <b>공유 버튼(⬆️)</b>을 누르고 <b>Safari로 열기</b>를 고른 뒤, 사파리에서 <b>공유 → 홈 화면에 추가</b>를 눌러 주세요.'
+      : '오른쪽 아래 <b>⋮ 버튼</b>을 누르고 <b>다른 브라우저로 열기</b>를 고른 뒤, 크롬에서 다시 열어 주세요.'}
+  </div>`;
+}
 function installBox() {
   if (isStandalone()) return '';
+  if (isInApp()) return inAppBox();
   if (installEvt) return `<button class="btn amber full" onclick="installApp()">📲 휴대폰에 앱 설치하기</button>`;
   if (isIOS()) return `<div class="note" style="margin-top:16px">📲 앱으로 쓰려면 사파리 아래쪽 <b>공유 버튼</b>을 누르고 <b>홈 화면에 추가</b>를 고르세요.</div>`;
   return '';
 }
 function init() {
+  if (isKakao() && !isStandalone()) {
+    let tried = false; try { tried = sessionStorage.getItem('raon_ext') === '1'; sessionStorage.setItem('raon_ext', '1'); } catch (e) {}
+    if (!tried) setTimeout(openExternal, 300);
+  }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   render();
   call('info').then(r => { info = r; if (!sess) render(); }).catch(e => { loadNote = e.message; if (!sess) render(); });
