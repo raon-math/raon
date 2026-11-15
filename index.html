@@ -202,11 +202,11 @@ async function load(quiet) {
   try {
     const d = await call('getData');
     if (my !== loadSeq || syncing) return;
-    COLS.forEach(c => S[c] = d[c] || {}); S.avgs = d.avgs || null;
+    COLS.forEach(c => S[c] = d[c] || {}); S.avgs = d.avgs || null; S.pwSet = d.pwSet || [];
     loaded = true; loadNote = ''; scheduleRender();
   } catch (e) {
     if (my !== loadSeq) return;
-    if (e.message === 'AUTH') { logout(); toast('다시 로그인해 주세요.'); return; }
+    if (e.message === 'AUTH' || e.message === 'NEEDPW') { logout(); toast(e.message === 'NEEDPW' ? '비밀번호를 만들어야 해요. 다시 로그인해 주세요.' : '다시 로그인해 주세요.'); return; }
     loadNote = e.message; scheduleRender();
   }
 }
@@ -227,7 +227,7 @@ async function commit(ops) {
   try { await call('ops', { ops }); }
   catch (e) {
     syncing--;
-    if (e.message === 'AUTH') { logout(); toast('다시 로그인해 주세요.'); }
+    if (e.message === 'AUTH' || e.message === 'NEEDPW') { logout(); toast('다시 로그인해 주세요.'); }
     else { toast(e.message); load(true); }
     throw e;
   }
@@ -306,10 +306,7 @@ function renderLogin() {
       <button class="${loginTab === 'teacher' ? 'on' : ''}" onclick="loginTab='teacher';render()">선생님</button>
     </div>
     ${loginTab === 'student' ? `
-      <label>이름</label><input id="lname" autocomplete="off" placeholder="홍길동">
-      <label>출결 카드 번호</label><input id="lcard" inputmode="numeric" autocomplete="off" placeholder="1234" onkeydown="if(event.key==='Enter')studentLogin()">
-      <button class="btn primary full" onclick="studentLogin()">들어가기</button>
-      <p class="muted" style="margin-top:12px">한 번 로그인하면 이 기기에서는 바로 내 화면이 열려요.</p>` : `
+${studentLoginForm()}` : `
       <label>관리자 PIN</label><input id="lpin" type="password" inputmode="numeric" onkeydown="if(event.key==='Enter')teacherLogin()">
       <button class="btn primary full" onclick="teacherLogin()">관리자 로그인</button>
       ${firstPin ? `<p class="muted" style="margin-top:12px">처음 PIN은 <b>0000</b>이에요. 로그인한 뒤 설정에서 꼭 바꿔 주세요.</p>` : ''}`}
@@ -318,14 +315,53 @@ function renderLogin() {
     ${installBox()}
   </div>`;
 }
+let lstep = 'id', lform = { name: '', card: '' };
+function studentLoginForm() {
+  if (lstep === 'pw') return `
+      <div class="card" style="margin-top:14px"><b>${esc(lform.name)}</b> 학생, 비밀번호를 입력해 주세요.</div>
+      <label>비밀번호</label><input id="lpw" type="password" inputmode="numeric" autocomplete="off" onkeydown="if(event.key==='Enter')studentLogin()">
+      <button class="btn primary full" onclick="studentLogin()">들어가기</button>
+      <button class="btn full" onclick="lstep='id';render()">처음으로</button>
+      <p class="muted" style="margin-top:12px">비밀번호를 잊어버렸다면 선생님께 초기화를 부탁하세요.</p>`;
+  if (lstep === 'set') return `
+      <div class="card" style="margin-top:14px"><b>${esc(lform.name)}</b> 학생, 처음 로그인이에요!<br>나만 아는 <b>비밀번호(숫자 4~8자리)</b>를 만들어 주세요. 친구에게 알려주면 안 돼요.</div>
+      <label>새 비밀번호</label><input id="lpw1" type="password" inputmode="numeric" autocomplete="off">
+      <label>한 번 더 입력</label><input id="lpw2" type="password" inputmode="numeric" autocomplete="off" onkeydown="if(event.key==='Enter')createPw()">
+      <button class="btn primary full" onclick="createPw()">비밀번호 만들고 들어가기</button>
+      <button class="btn full" onclick="lstep='id';render()">처음으로</button>`;
+  return `
+      <label>이름</label><input id="lname" autocomplete="off" placeholder="홍길동" value="${esc(lform.name)}">
+      <label>출결 카드 번호</label><input id="lcard" inputmode="numeric" autocomplete="off" placeholder="1234" onkeydown="if(event.key==='Enter')studentLogin()">
+      <button class="btn primary full" onclick="studentLogin()">다음</button>
+      <p class="muted" style="margin-top:12px">한 번 로그인하면 이 기기에서는 바로 내 화면이 열려요.</p>`;
+}
+function enterAsStudent(sid, pw) {
+  sess = { role: 'student', sid, card: lform.card, pw }; LS.set('raon_sess', sess);
+  lstep = 'id'; lform = { name: '', card: '' }; stab = 'home'; loaded = false; render(); load();
+}
 async function studentLogin() {
-  const name = $('#lname').value.trim(), card = $('#lcard').value.trim();
-  if (!name || !card) { $('#lerr').textContent = '이름과 카드 번호를 모두 입력해 주세요.'; return; }
+  if (lstep === 'id') {
+    const name = $('#lname').value.trim(), card = $('#lcard').value.trim();
+    if (!name || !card) { $('#lerr').textContent = '이름과 카드 번호를 모두 입력해 주세요.'; return; }
+    lform = { name, card };
+  }
+  const pw = lstep === 'pw' ? $('#lpw').value.trim() : '';
+  if (lstep === 'pw' && !pw) { $('#lerr').textContent = '비밀번호를 입력해 주세요.'; return; }
   $('#lerr').textContent = '확인하는 중…';
   try {
-    const r = await call('studentLogin', { name, card });
-    sess = { role: 'student', sid: r.sid, card }; LS.set('raon_sess', sess); stab = 'home'; loaded = false; render(); load();
-  } catch (e) { $('#lerr').textContent = e.message; }
+    const r = await call('studentLogin', { name: lform.name, card: lform.card, pw });
+    if (r.needSet) { lstep = 'set'; render(); return; }
+    if (r.needPw) { lstep = 'pw'; render(); setTimeout(() => { const e = $('#lpw'); if (e) e.focus(); }, 50); return; }
+    enterAsStudent(r.sid, pw);
+  } catch (e) { $('#lerr').textContent = e.message; if (lstep === 'pw') $('#lpw').value = ''; }
+}
+async function createPw() {
+  const a = $('#lpw1').value.trim(), b = $('#lpw2').value.trim();
+  if (!new RegExp('^[0-9]{4,8}$').test(a)) { $('#lerr').textContent = '비밀번호는 숫자 4~8자리로 만들어 주세요.'; return; }
+  if (a !== b) { $('#lerr').textContent = '두 번 입력한 비밀번호가 달라요.'; return; }
+  $('#lerr').textContent = '만드는 중…';
+  try { const r = await call('setStudentPw', { name: lform.name, card: lform.card, pw: a }); toast('비밀번호를 만들었어요. 꼭 기억해 두세요!'); enterAsStudent(r.sid, a); }
+  catch (e) { $('#lerr').textContent = e.message; }
 }
 async function teacherLogin() {
   const p = $('#lpin').value.trim();
@@ -336,7 +372,7 @@ async function teacherLogin() {
     sess = { role: 'teacher', pin: p }; LS.set('raon_sess', sess); ttab = 'dash'; loaded = false; render(); load();
   } catch (e) { $('#lerr').textContent = e.message; }
 }
-function logout() { sess = null; LS.set('raon_sess', null); loaded = false; loadSeq++; COLS.forEach(c => S[c] = {}); S.avgs = null; closeModal(); render(); }
+function logout() { lstep = 'id'; sess = null; LS.set('raon_sess', null); loaded = false; loadSeq++; COLS.forEach(c => S[c] = {}); S.avgs = null; closeModal(); render(); }
 
 
 function statusBadge(sub, a) {
@@ -511,6 +547,9 @@ function openStudent(sid) {
       <h2>과제</h2><div class="card list">${as.length ? as.slice(0, 10).map(a => `<div class="item"><div class="grow">${esc(a.title)}<div class="muted">${a.due ? '마감 ' + md(a.due) : ''}</div></div>${statusBadge(subOf(a.id, sid), a)}</div>`).join('') : `<div class="empty">과제가 없어요.</div>`}</div>
       <h2>테스트</h2><div class="card list">${ts.length ? ts.slice(0, 10).map(t => { const sc = scoreOf(t.id, sid); return `<div class="item"><div class="grow">${typeBadge(t)} ${esc(t.title)}<div class="muted">${md(t.date)} · 평균 ${testAvg(t) ?? '-'}</div></div><b>${sc ? sc.score : '-'}</b><span class="muted">점</span></div>`; }).join('') : `<div class="empty">테스트가 없어요.</div>`}</div>
       <h2>최근 포인트</h2><div class="card list">${hist.length ? hist.map(p => `<div class="item"><div class="grow">${esc(p.reason)}<div class="muted">${fmtTime(p.at)}</div></div><div class="pts ${p.amt < 0 ? 'minus' : ''}">${p.amt > 0 ? '+' : ''}${p.amt}</div></div>`).join('') : `<div class="empty">내역이 없어요.</div>`}</div>
+      <h2>비밀번호</h2><div class="card"><div class="row between"><div class="grow">${(S.pwSet || []).includes(sid) ? '<span class="badge b-green">설정됨</span>' : '<span class="badge b-gray">아직 안 만듦</span>'}
+        <div class="muted" style="margin-top:6px">학생이 직접 만든 비밀번호는 선생님도 볼 수 없어요. 잊어버렸다면 초기화해 주세요. 다음 로그인 때 새로 만들어요.</div></div></div>
+        ${(S.pwSet || []).includes(sid) ? `<button class="btn danger full" onclick="arm('rp${sid}',()=>resetPw('${sid}'))">${armed === 'rp' + sid ? '한 번 더 누르면 초기화돼요' : '비밀번호 초기화'}</button>` : ''}</div>
       <h2>정보 수정</h2><div class="card">
         <div class="grid2"><div><label>이름</label><input id="ename" value="${esc(s.name)}"></div><div><label>카드 번호</label><input id="ecard" value="${esc(s.card)}" inputmode="numeric"></div></div>
         <label>반</label><input id="ecls" value="${esc(s.cls || '')}">
@@ -524,6 +563,9 @@ async function saveStudent(sid) {
   if (!name || !card) return toast('이름과 카드 번호를 입력해 주세요.');
   if (students().some(s => s.id !== sid && String(s.card) === card)) return toast('이미 쓰고 있는 카드 번호예요.');
   try { await put('students', sid, { ...S.students[sid], name, card, cls }); toast('저장했어요'); render(); } catch (e) {}
+}
+async function resetPw(sid) {
+  try { await call('resetStudentPw', { sid }); S.pwSet = (S.pwSet || []).filter(x => x !== sid); toast('비밀번호를 초기화했어요'); render(); } catch (e) { toast(e.message); }
 }
 async function delStudent(sid) { try { closeModal(); await del('students', sid); toast('삭제했어요'); } catch (e) {} }
 
