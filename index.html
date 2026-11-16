@@ -639,7 +639,7 @@ function tPoints() {
   const hist = allHist.slice(0, pLimit);
   return `<div class="card"><b>포인트 주기</b>
     <div class="chips"><span class="chip" onclick="pSel=new Set(students().map(s=>s.id));render()">전체 선택</span>
-      ${cls.map(c => `<span class="chip" onclick="pSel=new Set(students().filter(s=>s.cls==='${esc(c)}').map(s=>s.id));render()">${esc(c)}</span>`).join('')}
+      ${cls.map(c => { const ids = st.filter(s => s.cls === c).map(s => s.id), all = ids.length && ids.every(id => pSel.has(id)); return `<span class="chip ${all ? 'on' : ''}" onclick="togglePCls('${esc(c)}')">${esc(c)}</span>`; }).join('')}
       <span class="chip" onclick="pSel=new Set();render()">선택 해제</span></div>
     <div style="margin-top:6px">${st.length ? st.map(s => `<label class="check"><input type="checkbox" ${pSel.has(s.id) ? 'checked' : ''} onchange="this.checked?pSel.add('${s.id}'):pSel.delete('${s.id}');$('#pcount').textContent=pSel.size">
       <span class="grow" style="color:var(--ink)">${esc(s.name)} <span class="muted">${esc(s.cls || '')}</span></span><span class="pts">${ptsOf(s.id).toLocaleString()}</span></label>`).join('') : `<div class="empty">학생을 먼저 등록해 주세요.</div>`}</div>
@@ -655,6 +655,11 @@ function tPoints() {
       <div class="pts ${p.amt < 0 ? 'minus' : ''}">${p.amt > 0 ? '+' : ''}${p.amt}</div>
       <button class="btn sm" onclick="arm('dp${p.id}',()=>delPoint('${p.id}'))">${armed === 'dp' + p.id ? '삭제?' : '×'}</button></div>`).join('') : `<div class="empty">아직 내역이 없어요.</div>`}</div>
     ${allHist.length > hist.length ? `<button class="btn full" onclick="pLimit+=30;render()">더 보기 (${allHist.length - hist.length}개 더)</button>` : ''}`;
+}
+function togglePCls(c) {
+  const ids = students().filter(s => s.cls === c).map(s => s.id), all = ids.every(id => pSel.has(id));
+  ids.forEach(id => all ? pSel.delete(id) : pSel.add(id));
+  formDirty = true; render();
 }
 async function givePoints(sign) {
   const raw = Math.abs(parseInt($('#pamt').value, 10) || 0);
