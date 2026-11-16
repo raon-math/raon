@@ -536,17 +536,21 @@ async function addStudent() {
 }
 let armed = '';
 function arm(key, fn) { if (armed === key) { armed = ''; fn(); } else { armed = key; renderModal(); render(); setTimeout(() => { if (armed === key) { armed = ''; renderModal(); } }, 4000); } }
+let mLimit = 20;
 function openStudent(sid) {
+  mLimit = 20;
   openModal(() => {
     const s = S.students[sid]; if (!s) return null;
-    const hist = pointsOf(sid).slice(0, 10);
+    const allP = pointsOf(sid), hist = allP.slice(0, mLimit);
     const as = assignments().filter(a => !a.cls || a.cls === s.cls);
     const ts = tests().filter(t => !t.cls || t.cls === s.cls);
     return `<h3>${esc(s.name)}</h3><div class="muted">${esc(s.cls || '반 없음')} · 카드 ${esc(s.card)}</div>
       <div class="card hero" style="margin-top:14px"><div class="muted">포인트</div><div class="big">${ptsOf(sid).toLocaleString()} P</div></div>
       <h2>과제</h2><div class="card list">${as.length ? as.slice(0, 10).map(a => `<div class="item"><div class="grow">${esc(a.title)}<div class="muted">${a.due ? '마감 ' + md(a.due) : ''}</div></div>${statusBadge(subOf(a.id, sid), a)}</div>`).join('') : `<div class="empty">과제가 없어요.</div>`}</div>
       <h2>테스트</h2><div class="card list">${ts.length ? ts.slice(0, 10).map(t => { const sc = scoreOf(t.id, sid); return `<div class="item"><div class="grow">${typeBadge(t)} ${esc(t.title)}<div class="muted">${md(t.date)} · 평균 ${testAvg(t) ?? '-'}</div></div><b>${sc ? sc.score : '-'}</b><span class="muted">점</span></div>`; }).join('') : `<div class="empty">테스트가 없어요.</div>`}</div>
-      <h2>최근 포인트</h2><div class="card list">${hist.length ? hist.map(p => `<div class="item"><div class="grow">${esc(p.reason)}<div class="muted">${fmtTime(p.at)}</div></div><div class="pts ${p.amt < 0 ? 'minus' : ''}">${p.amt > 0 ? '+' : ''}${p.amt}</div></div>`).join('') : `<div class="empty">내역이 없어요.</div>`}</div>
+      <h2>포인트 내역 (${allP.length}건)</h2><div class="card list">${hist.length ? hist.map(p => `<div class="item"><div class="grow">${esc(p.reason)}<div class="muted">${fmtTime(p.at)}</div></div><div class="pts ${p.amt < 0 ? 'minus' : ''}">${p.amt > 0 ? '+' : ''}${p.amt}</div>
+        <button class="btn sm" onclick="arm('dp${p.id}',()=>delPoint('${p.id}'))">${armed === 'dp' + p.id ? '삭제?' : '×'}</button></div>`).join('') : `<div class="empty">내역이 없어요.</div>`}</div>
+      ${allP.length > hist.length ? `<button class="btn full" onclick="mLimit+=20;renderModal()">더 보기 (${allP.length - hist.length}개 더)</button>` : ''}
       <h2>비밀번호</h2><div class="card"><div class="row between"><div class="grow">${(S.pwSet || []).includes(sid) ? '<span class="badge b-green">설정됨</span>' : '<span class="badge b-gray">아직 안 만듦</span>'}
         <div class="muted" style="margin-top:6px">학생이 직접 만든 비밀번호는 선생님도 볼 수 없어요. 잊어버렸다면 초기화해 주세요. 다음 로그인 때 새로 만들어요.</div></div></div>
         ${(S.pwSet || []).includes(sid) ? `<button class="btn danger full" onclick="arm('rp${sid}',()=>resetPw('${sid}'))">${armed === 'rp' + sid ? '한 번 더 누르면 초기화돼요' : '비밀번호 초기화'}</button>` : ''}</div>
@@ -612,10 +616,11 @@ function openHW(aid) {
 async function delHW(aid) { try { closeModal(); await del('assignments', aid); toast('과제를 삭제했어요'); } catch (e) {} }
 
 
-let pSel = new Set(), pReason = '', pAmt = 100;
+let pSel = new Set(), pReason = '', pAmt = 100, pFilter = '', pLimit = 30;
 function tPoints() {
   const st = students(), cls = classes();
-  const hist = Object.entries(S.points).map(([id, v]) => ({ id, ...v })).sort((a, b) => b.at - a.at).slice(0, 40);
+  const allHist = Object.entries(S.points).map(([id, v]) => ({ id, ...v })).filter(p => !pFilter || p.sid === pFilter).sort((a, b) => b.at - a.at);
+  const hist = allHist.slice(0, pLimit);
   return `<div class="card"><b>포인트 주기</b>
     <div class="chips"><span class="chip" onclick="pSel=new Set(students().map(s=>s.id));render()">전체 선택</span>
       ${cls.map(c => `<span class="chip" onclick="pSel=new Set(students().filter(s=>s.cls==='${esc(c)}').map(s=>s.id));render()">${esc(c)}</span>`).join('')}
@@ -627,10 +632,13 @@ function tPoints() {
     <div><label>사유</label><input id="preason" value="${esc(pReason)}" placeholder="예: 발표"></div></div>
     <div class="chips">${['출석', '과제 완료', '발표', '오답노트', '테스트 우수', '수업 태도'].map(r => `<span class="chip" onclick="pReason='${r}';$('#preason').value='${r}'">${r}</span>`).join('')}</div>
     <div class="grid2" style="margin-top:4px"><button class="btn amber full" onclick="givePoints(1)">지급 (<span id="pcount">${pSel.size}</span>명)</button><button class="btn danger full" onclick="givePoints(-1)">차감</button></div></div>
-    <h2>최근 포인트 내역</h2><div class="card list">${hist.length ? hist.map(p => `<div class="item">
+    <h2>포인트 내역</h2>
+    <select onchange="pFilter=this.value;pLimit=30;render()" style="margin-bottom:10px"><option value="">전체 학생 (최근 순)</option>${st.map(s => `<option value="${s.id}" ${pFilter === s.id ? 'selected' : ''}>${esc(s.name)} ${esc(s.cls || '')}</option>`).join('')}</select>
+    <div class="card list">${hist.length ? hist.map(p => `<div class="item">
       <div class="grow"><b>${esc((S.students[p.sid] || {}).name || '삭제된 학생')}</b> <span class="muted">${esc(p.reason)}</span><div class="muted">${fmtTime(p.at)}</div></div>
       <div class="pts ${p.amt < 0 ? 'minus' : ''}">${p.amt > 0 ? '+' : ''}${p.amt}</div>
-      <button class="btn sm" onclick="arm('dp${p.id}',()=>delPoint('${p.id}'))">${armed === 'dp' + p.id ? '삭제?' : '×'}</button></div>`).join('') : `<div class="empty">아직 내역이 없어요.</div>`}</div>`;
+      <button class="btn sm" onclick="arm('dp${p.id}',()=>delPoint('${p.id}'))">${armed === 'dp' + p.id ? '삭제?' : '×'}</button></div>`).join('') : `<div class="empty">아직 내역이 없어요.</div>`}</div>
+    ${allHist.length > hist.length ? `<button class="btn full" onclick="pLimit+=30;render()">더 보기 (${allHist.length - hist.length}개 더)</button>` : ''}`;
 }
 async function givePoints(sign) {
   const raw = Math.abs(parseInt($('#pamt').value, 10) || 0);
@@ -642,7 +650,7 @@ async function givePoints(sign) {
   pSel = new Set(); pReason = '';
   try { await commit(ids.map(sid => P('points', uid(), { sid, amt, reason, at: Date.now() }))); toast(`${ids.length}명에게 ${amt > 0 ? '+' : ''}${amt}P`); } catch (e) {}
 }
-async function delPoint(id) { try { await del('points', id); render(); } catch (e) {} }
+async function delPoint(id) { try { await del('points', id); toast('포인트 기록을 지웠어요'); render(); } catch (e) {} }
 
 
 function tTests() {
