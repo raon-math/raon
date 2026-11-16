@@ -144,6 +144,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
+const APP_VER = '2026.11.16-3';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -315,6 +316,7 @@ ${studentLoginForm()}` : `
     <p class="err" id="lerr"></p>
     ${loadNote ? `<div class="note">${esc(loadNote)}</div>` : ''}
     ${installBox()}
+    <p class="muted" style="text-align:center;margin-top:24px;font-size:12px">v${APP_VER}</p>
   </div>`;
 }
 let lstep = 'id', lform = { name: '', card: '' };
@@ -736,6 +738,7 @@ function tSettings() {
       ${settleMsg ? `<div class="fb" style="margin-top:10px">${settleMsg}</div>` : ''}</div>
     <div class="card"><b>샘플 데이터 (시험용)</b><div class="muted">학생 3명, 과제 2개, 테스트 2개를 넣어서 기능을 시험해 볼 수 있어요. 시험이 끝나면 학생을 삭제하면 관련 기록도 함께 지워져요.</div>
       <button class="btn full" onclick="seed()">샘플 데이터 넣기</button></div>
+    <div class="card"><b>앱 버전</b><div class="muted">${APP_VER} · 새 기능을 적용했는데 이 번호가 그대로면 앱을 완전히 닫았다가 다시 열어 주세요.</div></div>
     <div class="card"><b>데이터 저장 위치</b><div class="muted">이 앱과 연결된 구글 시트에 저장돼요. 시트에서 기록을 보거나 백업할 수 있어요. 다른 기기에서 바꾼 내용은 1분마다 자동으로 반영돼요.</div>
       <button class="btn full" onclick="load();toast('새로 불러왔어요')">지금 새로 불러오기</button></div>`;
 }
