@@ -386,7 +386,7 @@ function renderStudent(st) {
   const sid = st.id, pts = ptsOf(sid);
   const my = assignments().filter(a => forStu(a, st));
   const todo = my.filter(a => !subOf(a.id, sid));
-  const myTests = tests().filter(t => !t.cls || t.cls === st.cls);
+  const myTests = tests().filter(t => forStu(t, st));
   let body = '';
   if (stab === 'home') {
     const lastT = myTests.find(t => scoreOf(t.id, sid));
@@ -544,8 +544,9 @@ function openStudent(sid) {
   openModal(() => {
     const s = S.students[sid]; if (!s) return null;
     const allP = pointsOf(sid), hist = allP.slice(0, mLimit);
-    const as = assignments().filter(a => !a.cls || a.cls === s.cls);
-    const ts = tests().filter(t => !t.cls || t.cls === s.cls);
+    const me = { id: sid, cls: s.cls || '' };
+    const as = assignments().filter(a => forStu(a, me));
+    const ts = tests().filter(t => forStu(t, me));
     return `<h3>${esc(s.name)}</h3><div class="muted">${esc(s.cls || '반 없음')} · 카드 ${esc(s.card)}</div>
       <div class="card hero" style="margin-top:14px"><div class="muted">포인트</div><div class="big">${ptsOf(sid).toLocaleString()} P</div></div>
       <h2>과제</h2><div class="card list">${as.length ? as.slice(0, 10).map(a => `<div class="item"><div class="grow">${esc(a.title)}<div class="muted">${a.due ? '마감 ' + md(a.due) : ''}</div></div>${statusBadge(subOf(a.id, sid), a)}</div>`).join('') : `<div class="empty">과제가 없어요.</div>`}</div>
