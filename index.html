@@ -249,7 +249,9 @@ const pointsOf = sid => Object.entries(S.points).map(([id, v]) => ({ id, ...v })
 const ptsOf = sid => pointsOf(sid).reduce((a, p) => a + (+p.amt || 0), 0);
 const subOf = (aid, sid) => S.subs[aid + '__' + sid];
 const scoreOf = (tid, sid) => S.scores[tid + '__' + sid];
-const targets = x => students().filter(s => !x.cls || s.cls === x.cls);
+const forStu = (x, s) => x.sids ? String(x.sids).split(',').includes(s.id) : (!x.cls || String(x.cls).split(',').includes(s.cls));
+const targets = x => students().filter(s => forStu(x, s));
+const hwTargetBadge = a => a.sids ? `<span class="badge b-amber">개별 ${String(a.sids).split(',').filter(id => S.students[id]).length}명</span>` : clsBadge(a.cls);
 const classes = () => [...new Set(students().map(s => s.cls).filter(Boolean))].sort(byKo);
 const cfg = () => S.config.main || {};
 const pin = () => cfg().pin || '0000';
@@ -382,7 +384,7 @@ function statusBadge(sub, a) {
 }
 function renderStudent(st) {
   const sid = st.id, pts = ptsOf(sid);
-  const my = assignments().filter(a => !a.cls || a.cls === st.cls);
+  const my = assignments().filter(a => forStu(a, st));
   const todo = my.filter(a => !subOf(a.id, sid));
   const myTests = tests().filter(t => !t.cls || t.cls === st.cls);
   let body = '';
@@ -500,7 +502,7 @@ function hwCard(a) {
   const tg = targets(a), done = tg.filter(s => subOf(a.id, s.id)), chk = tg.filter(s => (subOf(a.id, s.id) || {}).status === 'checked');
   const missing = tg.filter(s => !subOf(a.id, s.id));
   return `<div class="card tap" onclick="openHW('${a.id}')">
-    <div class="row between"><b class="grow">${esc(a.title)}</b><span class="badge b-gray">${esc(a.cls || '전체')}</span></div>
+    <div class="row between"><b class="grow">${esc(a.title)}</b><span>${hwTargetBadge(a)}</span></div>
     <div class="muted">${a.due ? '마감 ' + md(a.due) + ' · ' : ''}제출 ${done.length}/${tg.length} · 확인 ${chk.length}</div>
     <div class="bar"><i style="width:${tg.length ? done.length / tg.length * 100 : 0}%"></i></div>
     ${missing.length && missing.length < tg.length + 1 ? `<div class="muted" style="margin-top:8px">미제출: ${missing.map(s => esc(s.name)).join(', ')}</div>` : ''}
@@ -577,25 +579,38 @@ async function delStudent(sid) { try { closeModal(); await del('students', sid);
 function clsSelect(id) {
   return `<select id="${id}"><option value="">전체 학생</option>${classes().map(c => `<option>${esc(c)}</option>`).join('')}</select>`;
 }
+let hwMode = 'cls', hwSel = new Set(), hwDraft = { t: '', d: '', due: '' };
+function keepHw() { const g = id => ($(id) || {}).value || ''; hwDraft = { t: g('#htitle'), d: g('#hdesc'), due: g('#hdue') }; formDirty = true; }
 function tHW() {
   const as = assignments();
   return `<div class="card"><b>새 과제 내기</b>
-    <label>과제 이름</label><input id="htitle" placeholder="예: 쎈 B단계 32~40번">
-    <label>설명 (선택)</label><textarea id="hdesc" placeholder="풀이 과정까지 노트에 적기"></textarea>
-    <div class="grid2"><div><label>마감일</label><input id="hdue" type="date" value="${today()}"></div><div><label>대상</label>${clsSelect('hcls')}</div></div>
+    <label>과제 이름</label><input id="htitle" placeholder="예: 쎈 B단계 32~40번" value="${esc(hwDraft.t)}">
+    <label>설명 (선택)</label><textarea id="hdesc" placeholder="풀이 과정까지 노트에 적기">${esc(hwDraft.d)}</textarea>
+    <label>마감일</label><input id="hdue" type="date" value="${hwDraft.due || today()}">
+    <label>대상</label><div class="seg" style="margin:0 0 10px">
+      <button class="${hwMode === 'cls' ? 'on' : ''}" onclick="keepHw();hwMode='cls';render()">반별</button>
+      <button class="${hwMode === 'stu' ? 'on' : ''}" onclick="keepHw();hwMode='stu';render()">학생 개별</button></div>
+    ${hwMode === 'cls' ? clsMulti('hcls') : `<div class="chips" style="margin-top:0">${classes().map(c => `<span class="chip" onclick="keepHw();students().filter(s=>s.cls==='${esc(c)}').forEach(s=>hwSel.add(s.id));render()">${esc(c)} 전체</span>`).join('')}<span class="chip" onclick="keepHw();hwSel=new Set();render()">선택 해제</span></div>
+      <div style="margin-top:6px">${students().map(s => `<label class="check"><input type="checkbox" ${hwSel.has(s.id) ? 'checked' : ''} onchange="formDirty=true;this.checked?hwSel.add('${s.id}'):hwSel.delete('${s.id}');$('#hwcount').textContent=hwSel.size">
+      <span class="grow" style="color:var(--ink)">${esc(s.name)} <span class="muted">${esc(s.cls || '')}</span></span></label>`).join('') || '<div class="empty">학생을 먼저 등록해 주세요.</div>'}</div>
+      <div class="muted" style="margin-top:6px">선택한 학생 <b id="hwcount">${hwSel.size}</b>명</div>`}
     <button class="btn primary full" onclick="addHW()">과제 내기</button></div>
     <h2>과제 목록</h2>${as.length ? as.map(hwCard).join('') : `<div class="card empty">아직 과제가 없어요.</div>`}`;
 }
 async function addHW() {
   const title = $('#htitle').value.trim();
   if (!title) return toast('과제 이름을 입력해 주세요.');
-  try { await put('assignments', uid(), { title, desc: $('#hdesc').value.trim(), due: $('#hdue').value, cls: $('#hcls').value, at: Date.now() }); toast('과제를 냈어요'); render(); } catch (e) {}
+  let cls = '', sids = '';
+  if (hwMode === 'stu') { sids = [...hwSel].filter(id => S.students[id]).join(','); if (!sids) return toast('과제를 낼 학생을 골라 주세요.'); }
+  else cls = pickedCls('hcls');
+  formDirty = false;
+  try { await put('assignments', uid(), { title, desc: $('#hdesc').value.trim(), due: $('#hdue').value, cls, sids, at: Date.now() }); hwSel = new Set(); hwDraft = { t: '', d: '', due: '' }; toast(sids ? `${sids.split(',').length}명에게 과제를 냈어요` : '과제를 냈어요'); render(); } catch (e) {}
 }
 function openHW(aid) {
   openModal(() => {
     const a = S.assignments[aid]; if (!a) return null;
     const tg = targets(a);
-    return `<h3>${esc(a.title)}</h3><div class="muted">${esc(a.cls || '전체 학생')}${a.due ? ' · 마감 ' + md(a.due) : ''}</div>
+    return `<h3>${esc(a.title)}</h3><div class="muted">${hwTargetBadge(a)}${a.due ? ' · 마감 ' + md(a.due) : ''}</div>
       ${a.desc ? `<div class="memo">${esc(a.desc)}</div>` : ''}
       <h2>제출 현황 (${tg.filter(s => subOf(aid, s.id)).length}/${tg.length})</h2>
       ${tg.length ? tg.map(s => {
