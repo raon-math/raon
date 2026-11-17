@@ -106,6 +106,9 @@ textarea{min-height:70px;resize:vertical}
 .new{display:inline-block;background:var(--red);color:#fff;font-size:10px;font-weight:900;border-radius:6px;padding:1px 5px;margin-left:4px;vertical-align:2px}
 .zoomwrap{overflow:auto;margin:14px -16px 0;padding:0 16px}
 .zoomwrap img{display:block;border-radius:8px}
+.clshead{display:flex;justify-content:space-between;align-items:baseline;margin:16px 4px 8px;padding-bottom:4px;border-bottom:2px solid var(--line)}
+.hwrow{padding:12px 0;border-top:1px solid var(--line);cursor:pointer}
+.hwrow:first-of-type{margin-top:10px}
 .todo{display:flex;align-items:flex-start;gap:12px;padding:14px 2px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none}
 .todo:last-child{border-bottom:0}
 .todo.locked{cursor:default}
@@ -144,7 +147,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.16-3';
+const APP_VER = '2026.11.17-1';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -497,8 +500,35 @@ function tDash() {
           <button class="btn sm amber" onclick="checkSub('${s.aid}','${s.sid}',true)">확인 +${hwPoint()}P</button>
         </div></div>`;
     }).join('') : `<div class="card empty">확인할 과제가 없어요.</div>`}
-    <h2>진행 중인 과제</h2>
-    ${active.length ? active.map(a => hwCard(a)).join('') : `<div class="card empty">진행 중인 과제가 없어요.</div>`}`;
+    <h2>진행 중인 과제</h2>${hwViewSeg()}
+    ${active.length ? (hwView === 'cls' ? classBoard(active) : active.map(a => hwCard(a)).join('')) : `<div class="card empty">진행 중인 과제가 없어요.</div>`}`;
+}
+let hwView = 'hw';
+const hwViewSeg = () => `<div class="seg" style="margin:0 0 12px"><button class="${hwView === 'hw' ? 'on' : ''}" onclick="hwView='hw';render()">과제별</button><button class="${hwView === 'cls' ? 'on' : ''}" onclick="hwView='cls';render()">반별</button></div>`;
+function groupByCls(list) {
+  const m = new Map();
+  list.forEach(s => { const c = s.cls || '반 없음'; if (!m.has(c)) m.set(c, []); m.get(c).push(s); });
+  return [...m.entries()].sort((x, y) => (x[0] === '반 없음') - (y[0] === '반 없음') || byKo(x[0], y[0]));
+}
+function classBoard(list) {
+  const groups = groupByCls(students());
+  if (!groups.length) return `<div class="card empty">학생을 먼저 등록해 주세요.</div>`;
+  return groups.map(([c, sts]) => {
+    const rows = list.map(a => {
+      const tg = sts.filter(s => forStu(a, s));
+      if (!tg.length) return '';
+      const done = tg.filter(s => subOf(a.id, s.id)), miss = tg.filter(s => !subOf(a.id, s.id));
+      return `<div class="hwrow" onclick="openHW('${a.id}')">
+        <div class="row between"><span class="grow">${esc(a.title)}${a.sids ? ' <span class="badge b-amber">개별</span>' : ''}</span><b>${done.length}/${tg.length}</b></div>
+        <div class="bar"><i style="width:${done.length / tg.length * 100}%"></i></div>
+        ${miss.length ? `<div class="muted" style="margin-top:4px">미제출: ${miss.map(s => esc(s.name)).join(', ')}</div>` : `<div class="muted" style="margin-top:4px;color:var(--green)">모두 제출했어요</div>`}
+      </div>`;
+    }).filter(Boolean);
+    const tot = list.reduce((n, a) => n + sts.filter(s => forStu(a, s)).length, 0);
+    const sub = list.reduce((n, a) => n + sts.filter(s => forStu(a, s) && subOf(a.id, s.id)).length, 0);
+    return `<div class="card"><div class="row between"><b class="grow" style="font-size:16px">${esc(c)} <span class="muted" style="font-weight:400">${sts.length}명</span></b>${tot ? `<span class="badge ${sub === tot ? 'b-green' : 'b-blue'}">제출 ${Math.round(sub / tot * 100)}%</span>` : ''}</div>
+      ${rows.length ? rows.join('') : '<div class="muted" style="margin-top:8px">이 반에 나간 과제가 없어요.</div>'}</div>`;
+  }).join('');
 }
 function hwCard(a) {
   const tg = targets(a), done = tg.filter(s => subOf(a.id, s.id)), chk = tg.filter(s => (subOf(a.id, s.id) || {}).status === 'checked');
@@ -598,7 +628,7 @@ function tHW() {
       <span class="grow" style="color:var(--ink)">${esc(s.name)} <span class="muted">${esc(s.cls || '')}</span></span></label>`).join('') || '<div class="empty">학생을 먼저 등록해 주세요.</div>'}</div>
       <div class="muted" style="margin-top:6px">선택한 학생 <b id="hwcount">${hwSel.size}</b>명</div>`}
     <button class="btn primary full" onclick="addHW()">과제 내기</button></div>
-    <h2>과제 목록</h2>${as.length ? as.map(hwCard).join('') : `<div class="card empty">아직 과제가 없어요.</div>`}`;
+    <h2>과제 목록</h2>${hwViewSeg()}${as.length ? (hwView === 'cls' ? classBoard(as) : as.map(hwCard).join('')) : `<div class="card empty">아직 과제가 없어요.</div>`}`;
 }
 async function addHW() {
   const title = $('#htitle').value.trim();
@@ -616,9 +646,9 @@ function openHW(aid) {
     return `<h3>${esc(a.title)}</h3><div class="muted">${hwTargetBadge(a)}${a.due ? ' · 마감 ' + md(a.due) : ''}</div>
       ${a.desc ? `<div class="memo">${esc(a.desc)}</div>` : ''}
       <h2>제출 현황 (${tg.filter(s => subOf(aid, s.id)).length}/${tg.length})</h2>
-      ${tg.length ? tg.map(s => {
+      ${tg.length ? groupByCls(tg).map(([c, list]) => `<div class="clshead"><b>${esc(c)}</b><span class="muted">제출 ${list.filter(s => subOf(aid, s.id)).length}/${list.length}</span></div>` + list.map(s => {
         const sub = subOf(aid, s.id), k = aid + '__' + s.id;
-        return `<div class="card"><div class="row between"><b class="grow">${esc(s.name)} <span class="muted">${esc(s.cls || '')}</span></b>${statusBadge(sub, a)}</div>
+        return `<div class="card"><div class="row between"><b class="grow">${esc(s.name)}</b>${statusBadge(sub, a)}</div>
           ${sub && sub.memo ? `<div class="memo">${esc(sub.memo)}</div>` : ''}
           ${sub && sub.status === 'checked' && sub.fb ? `<div class="fb">${esc(sub.fb)}</div>` : ''}
           ${sub && sub.status === 'checked' ? '' : `
@@ -627,7 +657,7 @@ function openHW(aid) {
             <button class="btn sm" onclick="checkSub('${aid}','${s.id}',false)">확인</button>
             <button class="btn sm amber" onclick="checkSub('${aid}','${s.id}',true)">확인 +${hwPoint()}P</button></div>`}
         </div>`;
-      }).join('') : `<div class="card empty">대상 학생이 없어요.</div>`}
+      }).join('')).join('') : `<div class="card empty">대상 학생이 없어요.</div>`}
       <button class="btn danger full" onclick="arm('dh${aid}',()=>delHW('${aid}'))">${armed === 'dh' + aid ? '한 번 더 누르면 삭제돼요' : '과제 삭제'}</button>`;
   });
 }
