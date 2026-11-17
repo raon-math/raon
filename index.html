@@ -153,7 +153,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.17-4';
+const APP_VER = '2026.11.17-5';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -631,13 +631,20 @@ async function delStudent(sid) { try { closeModal(); await del('students', sid);
 function clsSelect(id) {
   return `<select id="${id}"><option value="">전체 학생</option>${classes().map(c => `<option>${esc(c)}</option>`).join('')}</select>`;
 }
-let hwMode = 'cls', hwSel = new Set(), hwDraft = { t: '', d: '', due: '' };
-function keepHw() { const g = id => ($(id) || {}).value || ''; hwDraft = { t: g('#htitle'), d: g('#hdesc'), due: g('#hdue') }; formDirty = true; }
+let hwMode = 'cls', hwSel = new Set(), hwDraft = { t: ['', '', ''], d: '', due: '' };
+function keepHw() {
+  const g = id => ($(id) || {}).value || '';
+  hwDraft = { t: [...document.querySelectorAll('.htitle')].map(x => x.value), d: g('#hdesc'), due: g('#hdue') };
+  formDirty = true;
+}
+function addHwRow() { keepHw(); if (hwDraft.t.length < 10) hwDraft.t.push(''); render(); setTimeout(() => { const l = [...document.querySelectorAll('.htitle')].at(-1); if (l) l.focus(); }, 30); }
 function tHW() {
   const as = assignments();
   return `<div class="card"><b>새 과제 내기</b>
-    <label>과제 이름</label><input id="htitle" placeholder="예: 쎈 B단계 32~40번" value="${esc(hwDraft.t)}">
-    <label>설명 (선택)</label><textarea id="hdesc" placeholder="풀이 과정까지 노트에 적기">${esc(hwDraft.d)}</textarea>
+    <label>과제 이름 (한 칸에 하나씩, 빈칸은 건너뛰어요)</label>
+    ${hwDraft.t.map((t, i) => `<input class="htitle" style="margin-bottom:8px" placeholder="${['예: 쎈 B단계 32~40번', '예: 오답노트 3문제', '예: 개념원리 p.52~55'].at(i) || '과제 ' + (i + 1)}" value="${esc(t)}">`).join('')}
+    <button class="btn sm" onclick="addHwRow()">＋ 칸 추가</button>
+    <label>설명 (선택, 모든 과제에 같이 붙어요)</label><textarea id="hdesc" placeholder="풀이 과정까지 노트에 적기">${esc(hwDraft.d)}</textarea>
     <label>마감일</label><input id="hdue" type="date" value="${hwDraft.due || today()}">
     <label>대상</label><div class="seg" style="margin:0 0 10px">
       <button class="${hwMode === 'cls' ? 'on' : ''}" onclick="keepHw();hwMode='cls';render()">반별</button>
@@ -650,13 +657,18 @@ function tHW() {
     <h2>과제 목록</h2>${hwViewSeg()}${as.length ? (hwView === 'cls' ? classBoard(as, 'all') : as.map(hwCard).join('')) : `<div class="card empty">아직 과제가 없어요.</div>`}`;
 }
 async function addHW() {
-  const title = $('#htitle').value.trim();
-  if (!title) return toast('과제 이름을 입력해 주세요.');
+  const titles = [...document.querySelectorAll('.htitle')].map(x => x.value.trim()).filter(Boolean);
+  if (!titles.length) return toast('과제 이름을 하나 이상 입력해 주세요.');
   let cls = '', sids = '';
   if (hwMode === 'stu') { sids = [...hwSel].filter(id => S.students[id]).join(','); if (!sids) return toast('과제를 낼 학생을 골라 주세요.'); }
   else cls = pickedCls('hcls');
   formDirty = false;
-  try { await put('assignments', uid(), { title, desc: $('#hdesc').value.trim(), due: $('#hdue').value, cls, sids, at: Date.now() }); hwSel = new Set(); hwDraft = { t: '', d: '', due: '' }; toast(sids ? `${sids.split(',').length}명에게 과제를 냈어요` : '과제를 냈어요'); render(); } catch (e) {}
+  const desc = $('#hdesc').value.trim(), due = $('#hdue').value, now = Date.now();
+  try {
+    await commit(titles.map((title, i) => P('assignments', uid() + i, { title, desc, due, cls, sids, at: now - i })));
+    hwSel = new Set(); hwDraft = { t: ['', '', ''], d: '', due: '' };
+    toast(`과제 ${titles.length}개를 ${sids ? sids.split(',').length + '명에게' : '냈어요'}${sids ? ' 냈어요' : ''}`); render();
+  } catch (e) {}
 }
 function openHW(aid) {
   openModal(() => {
