@@ -147,7 +147,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.17-1';
+const APP_VER = '2026.11.17-2';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -488,18 +488,6 @@ function tDash() {
       <div class="stat"><b>${active.length}</b><span>진행 중 과제</span></div>
       <div class="stat"><b style="color:${waiting.length ? 'var(--blue)' : 'inherit'}">${waiting.length}</b><span>확인 대기</span></div>
     </div>
-    <h2>확인 대기 중인 과제</h2>
-    ${waiting.length ? waiting.map(s => {
-      const a = S.assignments[s.aid], k = s.aid + '__' + s.sid;
-      return `<div class="card">
-        <div class="row between"><div class="grow"><b>${esc(S.students[s.sid].name)}</b> <span class="muted">${esc(S.students[s.sid].cls || '')}</span><div class="muted">${esc(a.title)} · ${fmtTime(s.at)}</div></div></div>
-        ${s.memo ? `<div class="memo">${esc(s.memo)}</div>` : ''}
-        <input id="fb_${k}" placeholder="한마디 피드백 (선택)" style="margin-top:10px">
-        <div class="row" style="margin-top:8px;justify-content:flex-end">
-          <button class="btn sm" onclick="checkSub('${s.aid}','${s.sid}',false)">확인</button>
-          <button class="btn sm amber" onclick="checkSub('${s.aid}','${s.sid}',true)">확인 +${hwPoint()}P</button>
-        </div></div>`;
-    }).join('') : `<div class="card empty">확인할 과제가 없어요.</div>`}
     <h2>진행 중인 과제</h2>${hwViewSeg()}
     ${active.length ? (hwView === 'cls' ? classBoard(active) : active.map(a => hwCard(a)).join('')) : `<div class="card empty">진행 중인 과제가 없어요.</div>`}`;
 }
