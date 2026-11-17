@@ -107,8 +107,14 @@ textarea{min-height:70px;resize:vertical}
 .zoomwrap{overflow:auto;margin:14px -16px 0;padding:0 16px}
 .zoomwrap img{display:block;border-radius:8px}
 .clshead{display:flex;justify-content:space-between;align-items:baseline;margin:16px 4px 8px;padding-bottom:4px;border-bottom:2px solid var(--line)}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tile{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 6px 12px;text-align:center;cursor:pointer}
+.tile:active{transform:scale(.97)}
+.tile b{display:block;margin-top:2px;font-size:15px}
+.ring{width:64px;height:64px;border-radius:50%;margin:0 auto 8px;display:grid;place-items:center}
+.ring span{width:50px;height:50px;border-radius:50%;background:#fff;display:grid;place-items:center;font-weight:900;font-size:14px;color:var(--ink)}
 .hwrow{padding:12px 0;border-top:1px solid var(--line);cursor:pointer}
-.hwrow:first-of-type{margin-top:10px}
+.hwrow:first-child{border-top:0;padding-top:4px}
 .todo{display:flex;align-items:flex-start;gap:12px;padding:14px 2px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none}
 .todo:last-child{border-bottom:0}
 .todo.locked{cursor:default}
@@ -147,7 +153,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.17-2';
+const APP_VER = '2026.11.17-4';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -478,7 +484,7 @@ function renderTeacher() {
 function tDash() {
   const st = students(), as = assignments();
   const waiting = Object.values(S.subs).filter(s => s.status === 'submitted' && S.assignments[s.aid] && S.students[s.sid]).sort((a, b) => b.at - a.at);
-  const active = as.filter(a => !a.due || a.due >= today()).slice(0, 6);
+  const active = activeHW();
   if (!st.length) return `<div class="card empty">아직 등록된 학생이 없어요.<br><br>
     <button class="btn primary" onclick="ttab='students';render()">학생 등록하기</button>
     <button class="btn" onclick="seed()">샘플 데이터 넣기</button></div>`;
@@ -488,8 +494,8 @@ function tDash() {
       <div class="stat"><b>${active.length}</b><span>진행 중 과제</span></div>
       <div class="stat"><b style="color:${waiting.length ? 'var(--blue)' : 'inherit'}">${waiting.length}</b><span>확인 대기</span></div>
     </div>
-    <h2>진행 중인 과제</h2>${hwViewSeg()}
-    ${active.length ? (hwView === 'cls' ? classBoard(active) : active.map(a => hwCard(a)).join('')) : `<div class="card empty">진행 중인 과제가 없어요.</div>`}`;
+    <h2>진행 중인 과제</h2><p class="muted" style="margin:-4px 4px 10px">마감 전 과제와, 최근 2주 안에 마감됐지만 아직 확인이 안 끝난 과제예요.</p>${hwViewSeg()}
+    ${active.length ? (hwView === 'cls' ? classBoard(active, 'active') : active.map(a => hwCard(a)).join('')) : `<div class="card empty">진행 중인 과제가 없어요.</div>`}`;
 }
 let hwView = 'hw';
 const hwViewSeg = () => `<div class="seg" style="margin:0 0 12px"><button class="${hwView === 'hw' ? 'on' : ''}" onclick="hwView='hw';render()">과제별</button><button class="${hwView === 'cls' ? 'on' : ''}" onclick="hwView='cls';render()">반별</button></div>`;
@@ -498,32 +504,57 @@ function groupByCls(list) {
   list.forEach(s => { const c = s.cls || '반 없음'; if (!m.has(c)) m.set(c, []); m.get(c).push(s); });
   return [...m.entries()].sort((x, y) => (x[0] === '반 없음') - (y[0] === '반 없음') || byKo(x[0], y[0]));
 }
-function classBoard(list) {
+function activeHW() {
+  const cutoff = new Date(Date.now() - 14 * 864e5), cut = cutoff.getFullYear() + '-' + pad(cutoff.getMonth() + 1) + '-' + pad(cutoff.getDate());
+  const unfinished = a => targets(a).some(s => { const sb = subOf(a.id, s.id); return !sb || sb.status !== 'checked'; });
+  return assignments().filter(a => !a.due || a.due >= today() || (a.due >= cut && unfinished(a)));
+}
+function clsStats(sts, list) {
+  let tot = 0, sub = 0, miss = 0, nHw = 0;
+  list.forEach(a => { const tg = sts.filter(s => forStu(a, s)); if (!tg.length) return; nHw++; tot += tg.length; const d = tg.filter(s => subOf(a.id, s.id)).length; sub += d; miss += tg.length - d; });
+  return { tot, sub, miss, nHw, pct: tot ? Math.round(sub / tot * 100) : null };
+}
+function classBoard(list, scope) {
   const groups = groupByCls(students());
   if (!groups.length) return `<div class="card empty">학생을 먼저 등록해 주세요.</div>`;
-  return groups.map(([c, sts]) => {
+  return `<div class="tiles">${groups.map(([c, sts]) => {
+    const st = clsStats(sts, list), pct = st.pct ?? 0;
+    const col = st.pct === null ? 'var(--line)' : pct === 100 ? 'var(--green)' : 'var(--navy)';
+    return `<div class="tile" onclick="openClass('${esc(c)}','${scope}')">
+      <div class="ring" style="background:conic-gradient(${col} ${pct}%, #e3eeee 0)"><span>${st.pct === null ? '-' : pct + '%'}</span></div>
+      <b>${esc(c)}</b>
+      <div class="muted" style="font-size:12px">${st.nHw ? (st.miss ? `<span style="color:var(--red)">미제출 ${st.miss}건</span>` : '모두 제출') : '과제 없음'}</div>
+    </div>`;
+  }).join('')}</div><p class="muted" style="margin:8px 4px 0;font-size:12px">반을 누르면 과제별 진행 상황이 나와요. 원 안의 숫자는 그 반의 제출률이에요.</p>`;
+}
+function openClass(c, scope) {
+  openModal(() => {
+    const sts = groupByCls(students()).find(g => g[0] === c);
+    if (!sts) return null;
+    const list = scope === 'all' ? assignments() : activeHW(), st = clsStats(sts[1], list);
     const rows = list.map(a => {
-      const tg = sts.filter(s => forStu(a, s));
+      const tg = sts[1].filter(s => forStu(a, s));
       if (!tg.length) return '';
       const done = tg.filter(s => subOf(a.id, s.id)), miss = tg.filter(s => !subOf(a.id, s.id));
       return `<div class="hwrow" onclick="openHW('${a.id}')">
-        <div class="row between"><span class="grow">${esc(a.title)}${a.sids ? ' <span class="badge b-amber">개별</span>' : ''}</span><b>${done.length}/${tg.length}</b></div>
+        <div class="row between"><span class="grow">${esc(a.title)}${a.sids ? ' <span class="badge b-amber">개별</span>' : ''}${a.due ? ` <span class="muted" style="${a.due < today() ? 'color:var(--red)' : ''}">${md(a.due)}${a.due < today() ? ' 지남' : ''}</span>` : ''}</span><b>${done.length}/${tg.length}</b></div>
         <div class="bar"><i style="width:${done.length / tg.length * 100}%"></i></div>
         ${miss.length ? `<div class="muted" style="margin-top:4px">미제출: ${miss.map(s => esc(s.name)).join(', ')}</div>` : `<div class="muted" style="margin-top:4px;color:var(--green)">모두 제출했어요</div>`}
       </div>`;
     }).filter(Boolean);
-    const tot = list.reduce((n, a) => n + sts.filter(s => forStu(a, s)).length, 0);
-    const sub = list.reduce((n, a) => n + sts.filter(s => forStu(a, s) && subOf(a.id, s.id)).length, 0);
-    return `<div class="card"><div class="row between"><b class="grow" style="font-size:16px">${esc(c)} <span class="muted" style="font-weight:400">${sts.length}명</span></b>${tot ? `<span class="badge ${sub === tot ? 'b-green' : 'b-blue'}">제출 ${Math.round(sub / tot * 100)}%</span>` : ''}</div>
-      ${rows.length ? rows.join('') : '<div class="muted" style="margin-top:8px">이 반에 나간 과제가 없어요.</div>'}</div>`;
-  }).join('');
+    const per = sts[1].map(s => { const mine = list.filter(a => forStu(a, s)), left = mine.filter(a => !subOf(a.id, s.id)).length; return `<div class="item"><span class="grow">${esc(s.name)}</span>${mine.length ? (left ? `<span class="badge b-red">남은 과제 ${left}</span>` : '<span class="badge b-green">모두 제출</span>') : '<span class="muted">과제 없음</span>'}</div>`; }).join('');
+    return `<h3>${esc(c)}</h3><div class="muted">${sts[1].length}명 · ${scope === 'all' ? '전체 과제' : '진행 중인 과제'} ${st.nHw}개${st.pct === null ? '' : ' · 제출률 ' + st.pct + '%'}</div>
+      <h2>과제별</h2><div class="card">${rows.length ? rows.join('') : '<div class="muted">이 반에 나간 과제가 없어요.</div>'}</div>
+      <h2>학생별</h2><div class="card list">${per}</div>
+      <p class="muted" style="font-size:12px">과제를 누르면 확인 화면으로 넘어가요.</p>`;
+  });
 }
 function hwCard(a) {
   const tg = targets(a), done = tg.filter(s => subOf(a.id, s.id)), chk = tg.filter(s => (subOf(a.id, s.id) || {}).status === 'checked');
   const missing = tg.filter(s => !subOf(a.id, s.id));
   return `<div class="card tap" onclick="openHW('${a.id}')">
     <div class="row between"><b class="grow">${esc(a.title)}</b><span>${hwTargetBadge(a)}</span></div>
-    <div class="muted">${a.due ? '마감 ' + md(a.due) + ' · ' : ''}제출 ${done.length}/${tg.length} · 확인 ${chk.length}</div>
+    <div class="muted">${a.due ? '마감 ' + md(a.due) + (a.due < today() ? ' <span style="color:var(--red)">(지남)</span>' : '') + ' · ' : ''}제출 ${done.length}/${tg.length} · 확인 ${chk.length}</div>
     <div class="bar"><i style="width:${tg.length ? done.length / tg.length * 100 : 0}%"></i></div>
     ${missing.length && missing.length < tg.length + 1 ? `<div class="muted" style="margin-top:8px">미제출: ${missing.map(s => esc(s.name)).join(', ')}</div>` : ''}
   </div>`;
@@ -616,7 +647,7 @@ function tHW() {
       <span class="grow" style="color:var(--ink)">${esc(s.name)} <span class="muted">${esc(s.cls || '')}</span></span></label>`).join('') || '<div class="empty">학생을 먼저 등록해 주세요.</div>'}</div>
       <div class="muted" style="margin-top:6px">선택한 학생 <b id="hwcount">${hwSel.size}</b>명</div>`}
     <button class="btn primary full" onclick="addHW()">과제 내기</button></div>
-    <h2>과제 목록</h2>${hwViewSeg()}${as.length ? (hwView === 'cls' ? classBoard(as) : as.map(hwCard).join('')) : `<div class="card empty">아직 과제가 없어요.</div>`}`;
+    <h2>과제 목록</h2>${hwViewSeg()}${as.length ? (hwView === 'cls' ? classBoard(as, 'all') : as.map(hwCard).join('')) : `<div class="card empty">아직 과제가 없어요.</div>`}`;
 }
 async function addHW() {
   const title = $('#htitle').value.trim();
