@@ -107,6 +107,10 @@ textarea{min-height:70px;resize:vertical}
 .zoomwrap{overflow:auto;margin:14px -16px 0;padding:0 16px}
 .zoomwrap img{display:block;border-radius:8px}
 .clshead{display:flex;justify-content:space-between;align-items:baseline;margin:16px 4px 8px;padding-bottom:4px;border-bottom:2px solid var(--line)}
+.ptile{padding:16px 6px}
+.ptile.on{border-color:var(--navy);background:#eef6f6}
+.ptile.open{outline:2px solid var(--navy);outline-offset:-1px}
+.ppanel{margin-top:10px;border:2px solid var(--navy);border-radius:14px;padding:12px 14px;background:#fff}
 .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .tile{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 6px 12px;text-align:center;cursor:pointer}
 .tile:active{transform:scale(.97)}
@@ -153,7 +157,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.17-6';
+const APP_VER = '2026.11.18-2';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -494,15 +498,15 @@ function tDash() {
       <div class="stat"><b>${active.length}</b><span>진행 중 과제</span></div>
       <div class="stat"><b style="color:${waiting.length ? 'var(--blue)' : 'inherit'}">${waiting.length}</b><span>확인 대기</span></div>
     </div>
-    <h2>진행 중인 과제</h2><p class="muted" style="margin:-4px 4px 10px">마감 전 과제와, 최근 2주 안에 마감됐지만 아직 확인이 안 끝난 과제예요.</p>${hwViewSeg()}
-    ${active.length ? (hwView === 'cls' ? classBoard(active, 'active') : active.map(a => hwCard(a)).join('')) : `<div class="card empty">진행 중인 과제가 없어요.</div>`}`;
+    <h2>반별 과제 현황</h2><p class="muted" style="margin:-4px 4px 10px">마감 전 과제와, 최근 2주 안에 마감됐지만 아직 확인이 안 끝난 과제 기준이에요.</p>
+    ${classBoard(active, 'active')}`;
 }
 let hwView = 'hw';
 const hwViewSeg = () => `<div class="seg" style="margin:0 0 12px"><button class="${hwView === 'hw' ? 'on' : ''}" onclick="hwView='hw';render()">과제별</button><button class="${hwView === 'cls' ? 'on' : ''}" onclick="hwView='cls';render()">반별</button></div>`;
 function groupByCls(list) {
   const m = new Map();
-  list.forEach(s => { const c = s.cls || '반 없음'; if (!m.has(c)) m.set(c, []); m.get(c).push(s); });
-  return [...m.entries()].sort((x, y) => (x[0] === '반 없음') - (y[0] === '반 없음') || byKo(x[0], y[0]));
+  list.forEach(s => { const c = s.cls || '개별진도'; if (!m.has(c)) m.set(c, []); m.get(c).push(s); });
+  return [...m.entries()].sort((x, y) => (x[0] === '개별진도') - (y[0] === '개별진도') || byKo(x[0], y[0]));
 }
 function activeHW() {
   const cutoff = new Date(Date.now() - 14 * 864e5), cut = cutoff.getFullYear() + '-' + pad(cutoff.getMonth() + 1) + '-' + pad(cutoff.getDate());
@@ -598,7 +602,7 @@ function openStudent(sid) {
     const me = { id: sid, cls: s.cls || '' };
     const as = assignments().filter(a => forStu(a, me));
     const ts = tests().filter(t => forStu(t, me));
-    return `<h3>${esc(s.name)}</h3><div class="muted">${esc(s.cls || '반 없음')} · 카드 ${esc(s.card)}</div>
+    return `<h3>${esc(s.name)}</h3><div class="muted">${esc(s.cls || '개별진도')} · 카드 ${esc(s.card)}</div>
       <div class="card hero" style="margin-top:14px"><div class="muted">포인트</div><div class="big">${ptsOf(sid).toLocaleString()} P</div></div>
       <h2>과제</h2><div class="card list">${as.length ? as.slice(0, 10).map(a => `<div class="item"><div class="grow">${esc(a.title)}<div class="muted">${a.due ? '마감 ' + md(a.due) : ''}</div></div>${statusBadge(subOf(a.id, sid), a)}</div>`).join('') : `<div class="empty">과제가 없어요.</div>`}</div>
       <h2>테스트</h2><div class="card list">${ts.length ? ts.slice(0, 10).map(t => { const sc = scoreOf(t.id, sid); return `<div class="item"><div class="grow">${typeBadge(t)} ${esc(t.title)}<div class="muted">${md(t.date)} · 평균 ${testAvg(t) ?? '-'}</div></div><b>${sc ? sc.score : '-'}</b><span class="muted">점</span></div>`; }).join('') : `<div class="empty">테스트가 없어요.</div>`}</div>
@@ -694,21 +698,22 @@ function openHW(aid) {
 async function delHW(aid) { try { closeModal(); await del('assignments', aid); toast('과제를 삭제했어요'); } catch (e) {} }
 
 
-let pSel = new Set(), pReason = '', pAmt = 100, pFilter = '', pLimit = 30;
+let pSel = new Set(), pReason = '', pAmt = 100, pFilter = '', pLimit = 30, pOpen = '';
+function selGroup(on) { const g = groupByCls(students()).find(x => x[0] === pOpen); if (g) g[1].forEach(s => on ? pSel.add(s.id) : pSel.delete(s.id)); render(); }
 function tPoints() {
   const st = students(), cls = classes();
   const allHist = Object.entries(S.points).map(([id, v]) => ({ id, ...v })).filter(p => !pFilter || p.sid === pFilter).sort((a, b) => b.at - a.at);
   const hist = allHist.slice(0, pLimit);
   return `<div class="card"><b>포인트 주기</b>
-    <div class="chips"><span class="chip" onclick="pSel=new Set(students().map(s=>s.id));render()">전체 선택</span>
-      ${cls.map(c => { const ids = st.filter(s => s.cls === c).map(s => s.id), all = ids.length && ids.every(id => pSel.has(id)); return `<span class="chip ${all ? 'on' : ''}" onclick="togglePCls('${esc(c)}')">${esc(c)}</span>`; }).join('')}
-      <span class="chip" onclick="pSel=new Set();render()">선택 해제</span></div>
-    <div style="margin-top:6px">${st.length ? st.map(s => `<label class="check"><input type="checkbox" ${pSel.has(s.id) ? 'checked' : ''} onchange="this.checked?pSel.add('${s.id}'):pSel.delete('${s.id}');$('#pcount').textContent=pSel.size">
-      <span class="grow" style="color:var(--ink)">${esc(s.name)} <span class="muted">${esc(s.cls || '')}</span></span><span class="pts">${ptsOf(s.id).toLocaleString()}</span></label>`).join('') : `<div class="empty">학생을 먼저 등록해 주세요.</div>`}</div>
+    <div class="chips"><span class="chip" onclick="pSel=new Set(students().map(s=>s.id));render()">전체 학생 선택</span><span class="chip" onclick="pSel=new Set();render()">선택 해제</span></div>
+    ${st.length ? `<div class="tiles" style="margin-top:10px">${groupByCls(st).map(([c, ss]) => { const n = ss.filter(s => pSel.has(s.id)).length; return `<div class="tile ptile ${n ? 'on' : ''} ${pOpen === c ? 'open' : ''}" onclick="pOpen=pOpen==='${esc(c)}'?'':'${esc(c)}';render()"><b>${esc(c)}</b><div class="muted" style="font-size:12px">${n ? `<span style="color:var(--navy);font-weight:700">${n}/${ss.length}명 선택</span>` : ss.length + '명'}</div></div>`; }).join('')}</div>` : `<div class="empty">학생을 먼저 등록해 주세요.</div>`}
+    ${(() => { const g = groupByCls(st).find(x => x[0] === pOpen); if (!g) return ''; const all = g[1].every(s => pSel.has(s.id)); return `<div class="ppanel"><div class="row between"><b>${esc(pOpen)}</b><span><button class="btn sm" onclick="selGroup(${all ? 'false' : 'true'})">${all ? '이 반 해제' : '이 반 전체 선택'}</button> <button class="btn sm" onclick="pOpen='';render()">닫기</button></span></div>
+      ${g[1].map(s => `<label class="check"><input type="checkbox" ${pSel.has(s.id) ? 'checked' : ''} onchange="this.checked?pSel.add('${s.id}'):pSel.delete('${s.id}');render()"><span class="grow" style="color:var(--ink)">${esc(s.name)}</span><span class="pts">${ptsOf(s.id).toLocaleString()}</span></label>`).join('')}</div>`; })()}
+    ${pSel.size ? `<div class="muted" style="margin-top:10px">선택: ${students().filter(s => pSel.has(s.id)).map(s => esc(s.name)).join(', ')}</div>` : ''}
     <label>포인트 (100 단위)</label><div class="chips" style="margin-top:0">${[100, 200, 300, 500, 1000].map(n => `<span class="chip amtc ${pAmt === n ? 'on' : ''}" data-n="${n}" onclick="pAmt=${n};$('#pamt').value=${n};document.querySelectorAll('.amtc').forEach(e=>e.classList.toggle('on',e.dataset.n=='${n}'))">${n}</span>`).join('')}</div>
     <div class="grid2"><div><label>직접 입력</label><input id="pamt" type="number" inputmode="numeric" step="100" min="100" value="${pAmt}" oninput="pAmt=+this.value||0"></div>
-    <div><label>사유</label><input id="preason" value="${esc(pReason)}" placeholder="예: 발표"></div></div>
-    <div class="chips">${['출석', '과제 완료', '발표', '오답노트', '테스트 우수', '수업 태도'].map(r => `<span class="chip" onclick="pReason='${r}';$('#preason').value='${r}'">${r}</span>`).join('')}</div>
+    <div><label>사유</label><input id="preason" value="${esc(pReason)}" placeholder="예: 출석"></div></div>
+    <div class="chips">${['출석', '단원완료', 'Unit test 100점', 'Unit test 90점 이상', 'Unit test 85점 이상', 'Daily test 100점'].map(r => `<span class="chip" onclick="pReason='${r}';$('#preason').value='${r}'">${r}</span>`).join('')}</div>
     <div class="grid2" style="margin-top:4px"><button class="btn amber full" onclick="givePoints(1)">지급 (<span id="pcount">${pSel.size}</span>명)</button><button class="btn danger full" onclick="givePoints(-1)">차감</button></div></div>
     <h2>포인트 내역</h2>
     <select onchange="pFilter=this.value;pLimit=30;render()" style="margin-bottom:10px"><option value="">전체 학생 (최근 순)</option>${st.map(s => `<option value="${s.id}" ${pFilter === s.id ? 'selected' : ''}>${esc(s.name)} ${esc(s.cls || '')}</option>`).join('')}</select>
@@ -890,8 +895,8 @@ function noticeBlock(student) {
       ${openNotice === n.id || (!student) ? `<div class="body">${esc(n.body || '')}</div>` : ''}
       ${!student ? `<div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn sm danger" onclick="event.stopPropagation();arm('dn${n.id}',()=>delNotice('${n.id}'))">${armed === 'dn' + n.id ? '한 번 더 누르면 삭제' : '삭제'}</button></div>` : ''}
     </div>`).join('');
-  return (student ? imgList().map(m => imageCard(m, false)).join('') : '')
-    + (list.length || !student ? `<h2>📢 알림사항</h2><div class="card list">${items || '<div class="empty">아직 알림사항이 없어요.</div>'}</div>` : '');
+  return (list.length || !student ? `<h2>📢 알림사항</h2><div class="card list">${items || '<div class="empty">아직 알림사항이 없어요.</div>'}</div>` : '')
+    + (student ? imgList().map(m => imageCard(m, false)).join('') : '');
 }
 function zoomImage(id) {
   const m = imgList().find(x => x.id === id), st = imgs[id] || {};
@@ -903,19 +908,20 @@ function zoomImage(id) {
 }
 function tNotice() {
   const list = imgList();
-  return `<div class="card"><b>분기 안내문 올리기</b>
+  return `<div class="card"><b>알림사항 쓰기</b>
+    <label>대상</label>${clsMulti('ncls')}
+    <label>제목</label><input id="ntitle" placeholder="예: 11월 셋째 주 보강 안내">
+    <label>내용</label><textarea id="nbody" placeholder="학생들에게 전할 내용을 적어 주세요."></textarea>
+    <button class="btn primary full" onclick="addNotice()">알림 올리기</button></div>
+    ${noticeBlock(false)}
+    <h2>🗓️ 분기 안내문</h2>
+    <div class="card"><b>분기 안내문 올리기</b>
     <div class="muted">같은 요일 반들은 함께 골라서 한 장으로 올리면 돼요. 학생은 <b>자기 반 안내문</b>과 <b>전체 학생용 안내문</b>을 함께 봐요. 이미 안내문이 있는 반을 다시 고르면 그 반은 새 안내문으로 바뀌어요.</div>
     <label>대상</label>${clsMulti('nimgCls')}
     <label>제목</label><input id="nimgTitle" placeholder="예: 2026년 4분기 휴원 안내">
     <label>이미지 파일</label><input id="nimgFile" type="file" accept="${'image/' + '*'}" onchange="formDirty=true">
     <button class="btn primary full" ${imgBusy ? 'disabled' : ''} onclick="uploadImage()">${imgBusy ? '올리는 중…' : '이미지 올리기'}</button></div>
-    ${list.length ? `<h2>올린 안내문 (${list.length})</h2>` + list.map(m => imageCard(m, true)).join('') : ''}
-    <div class="card"><b>알림사항 쓰기</b>
-    <label>대상</label>${clsMulti('ncls')}
-    <label>제목</label><input id="ntitle" placeholder="예: 11월 셋째 주 보강 안내">
-    <label>내용</label><textarea id="nbody" placeholder="학생들에게 전할 내용을 적어 주세요."></textarea>
-    <button class="btn primary full" onclick="addNotice()">알림 올리기</button></div>
-    ${noticeBlock(false)}`;
+    ${list.length ? `<h2>올린 안내문 (${list.length})</h2>` + list.map(m => imageCard(m, true)).join('') : ''}`;
 }
 async function addNotice() {
   const title = $('#ntitle').value.trim(), body = $('#nbody').value.trim(), cls = pickedCls('ncls');
