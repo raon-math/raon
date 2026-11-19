@@ -157,7 +157,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.19-5';
+const APP_VER = '2026.11.19-6';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -635,31 +635,42 @@ async function delStudent(sid) { try { closeModal(); await del('students', sid);
 function clsSelect(id) {
   return `<select id="${id}"><option value="">전체 학생</option>${classes().map(c => `<option>${esc(c)}</option>`).join('')}</select>`;
 }
-let hwOpen = '';
-function hwTile(c) {
-  keepHw();
-  const g = groupByCls(students()).find(x => x[0] === c);
-  if (g) { const any = g[1].some(s => hwSel.has(s.id)); g[1].forEach(s => any ? hwSel.delete(s.id) : hwSel.add(s.id)); }
+const PK = { hw: new Set(), test: new Set() };
+function keepForm(k) { if (k === 'hw') keepHw(); else keepTest(); }
+function pkTile(k, c) {
+  keepForm(k);
+  const g = groupByCls(students()).find(x => x[0] === c), set = PK[k];
+  if (g) { const any = g[1].some(s => set.has(s.id)); g[1].forEach(s => any ? set.delete(s.id) : set.add(s.id)); }
   render();
 }
-function hwGroup(on) { keepHw(); const g = groupByCls(students()).find(x => x[0] === hwOpen); if (g) g[1].forEach(s => on ? hwSel.add(s.id) : hwSel.delete(s.id)); render(); }
-function hwTarget() {
-  const st = students(), sel = st.filter(s => hwSel.has(s.id));
+function pkCheck(k, id, on) { keepForm(k); on ? PK[k].add(id) : PK[k].delete(id); render(); }
+function pkAll(k, on) { keepForm(k); PK[k] = on ? new Set(students().map(s => s.id)) : new Set(); render(); }
+function pkTarget(k) {
+  const set = PK[k], st = students(), sel = st.filter(s => set.has(s.id));
   if (!sel.length) return null;
   if (sel.length === st.length) return { cls: '', sids: '' };
-  const groups = groupByCls(st), full = [], partial = [];
-  groups.forEach(([c, ss]) => { const n = ss.filter(s => hwSel.has(s.id)).length; if (!n) return; (n === ss.length && c !== '개별진도' ? full : partial).push(c); });
+  const full = [], partial = [];
+  groupByCls(st).forEach(([c, ss]) => { const n = ss.filter(s => set.has(s.id)).length; if (!n) return; (n === ss.length && c !== '개별진도' ? full : partial).push(c); });
   if (!partial.length) return { cls: full.join(','), sids: '' };
   return { cls: '', sids: sel.map(s => s.id).join(',') };
 }
-function hwTargetText() {
-  const st = students(), sel = st.filter(s => hwSel.has(s.id));
+function pkText(k) {
+  const set = PK[k], st = students(), sel = st.filter(s => set.has(s.id));
   if (!sel.length) return '아직 고른 학생이 없어요.';
-  if (sel.length === st.length) return '<b>전체 학생</b>에게 나가요.';
-  const parts = groupByCls(st).map(([c, ss]) => { const on = ss.filter(s => hwSel.has(s.id)); if (!on.length) return ''; return on.length === ss.length && c !== '개별진도' ? `<b>${esc(c)} 전체</b>` : on.map(s => esc(s.name)).join(', ') + ` <span class="muted">(${esc(c)})</span>`; }).filter(Boolean);
+  if (sel.length === st.length) return '<b>전체 학생</b>이 대상이에요.';
+  const parts = groupByCls(st).map(([c, ss]) => { const on = ss.filter(s => set.has(s.id)); if (!on.length) return ''; return on.length === ss.length && c !== '개별진도' ? `<b>${esc(c)} 전체</b>` : on.map(s => esc(s.name)).join(', ') + ` <span class="muted">(${esc(c)})</span>`; }).filter(Boolean);
   return `대상 ${sel.length}명: ` + parts.join(' · ');
 }
-let hwMode = 'cls', hwSel = new Set(), hwDraft = { t: ['', '', ''], d: '', due: '' };
+function pickerHTML(k) {
+  const set = PK[k], groups = groupByCls(students());
+  if (!groups.length) return '<div class="empty">학생을 먼저 등록해 주세요.</div>';
+  return `<div class="chips" style="margin-top:0"><span class="chip" onclick="pkAll('${k}',true)">전체 학생</span><span class="chip" onclick="pkAll('${k}',false)">선택 해제</span></div>
+    <div class="tiles" style="margin-top:10px">${groups.map(([c, ss]) => { const n = ss.filter(s => set.has(s.id)).length; return `<div class="tile ptile ${n ? 'on open' : ''}" onclick="pkTile('${k}','${esc(c)}')"><b>${esc(c)}</b><div class="muted" style="font-size:12px">${n ? `<span style="color:var(--navy);font-weight:700">${n}/${ss.length}명</span>` : ss.length + '명'}</div></div>`; }).join('')}</div>
+    ${groups.map(([c, ss]) => { const n = ss.filter(s => set.has(s.id)).length; if (!n) return ''; return `<div class="ppanel"><div class="row between"><b>${esc(c)} <span class="muted" style="font-weight:400">${n}/${ss.length}명</span></b><button class="btn sm" onclick="pkTile('${k}','${esc(c)}')">이 반 빼기</button></div>
+      ${ss.map(s => `<label class="check"><input type="checkbox" ${set.has(s.id) ? 'checked' : ''} onchange="pkCheck('${k}','${s.id}',this.checked)"><span class="grow" style="color:var(--ink)">${esc(s.name)}</span></label>`).join('')}</div>`; }).join('')}
+    <div class="muted" style="margin-top:10px">${pkText(k)}</div>`;
+}
+let hwMode = 'cls', hwDraft = { t: ['', '', ''], d: '', due: '' };
 function keepHw() {
   const g = id => ($(id) || {}).value || '';
   hwDraft = { t: [...document.querySelectorAll('.htitle')].map(x => x.value), d: g('#hdesc'), due: g('#hdue') };
@@ -670,11 +681,7 @@ function tHW() {
   const as = assignments();
   return `<div class="card"><b>새 과제 내기</b>
     <label><b style="color:var(--navy)">① 대상</b> · 반을 누르면 체크, 다시 누르면 해제돼요</label>
-    <div class="chips" style="margin-top:0"><span class="chip" onclick="keepHw();hwSel=new Set(students().map(s=>s.id));hwOpen='';render()">전체 학생</span><span class="chip" onclick="keepHw();hwSel=new Set();hwOpen='';render()">선택 해제</span></div>
-    ${students().length ? `<div class="tiles" style="margin-top:10px">${groupByCls(students()).map(([c, ss]) => { const n = ss.filter(s => hwSel.has(s.id)).length; return `<div class="tile ptile ${n ? 'on open' : ''}" onclick="hwTile('${esc(c)}')"><b>${esc(c)}</b><div class="muted" style="font-size:12px">${n ? `<span style="color:var(--navy);font-weight:700">${n}/${ss.length}명</span>` : ss.length + '명'}</div></div>`; }).join('')}</div>` : '<div class="empty">학생을 먼저 등록해 주세요.</div>'}
-    ${groupByCls(students()).map(([c, ss]) => { const n = ss.filter(s => hwSel.has(s.id)).length; if (!n) return ''; return `<div class="ppanel"><div class="row between"><b>${esc(c)} <span class="muted" style="font-weight:400">${n}/${ss.length}명</span></b><button class="btn sm" onclick="hwTile('${esc(c)}')">이 반 빼기</button></div>
-      ${ss.map(s => `<label class="check"><input type="checkbox" ${hwSel.has(s.id) ? 'checked' : ''} onchange="keepHw();this.checked?hwSel.add('${s.id}'):hwSel.delete('${s.id}');render()"><span class="grow" style="color:var(--ink)">${esc(s.name)}</span></label>`).join('')}</div>`; }).join('')}
-    <div class="muted" style="margin-top:10px">${hwTargetText()}</div>
+    ${pickerHTML('hw')}
     <label style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)"><b style="color:var(--navy)">② 과제</b> · 한 칸에 하나씩, 빈칸은 건너뛰어요</label>
     ${hwDraft.t.map((t, i) => `<input class="htitle" style="margin-bottom:8px" placeholder="${['예: 쎈 B단계 32~40번', '예: 오답노트 3문제', '예: 개념원리 p.52~55'].at(i) || '과제 ' + (i + 1)}" value="${esc(t)}">`).join('')}
     <button class="btn sm" onclick="addHwRow()">＋ 칸 추가</button>
@@ -686,14 +693,14 @@ function tHW() {
 async function addHW() {
   const titles = [...document.querySelectorAll('.htitle')].map(x => x.value.trim()).filter(Boolean);
   if (!titles.length) return toast('과제 이름을 하나 이상 입력해 주세요.');
-  const t = hwTarget();
+  const t = pkTarget('hw');
   if (!t) return toast('과제를 낼 반이나 학생을 골라 주세요.');
   const cls = t.cls, sids = t.sids;
   formDirty = false;
   const desc = $('#hdesc').value.trim(), due = $('#hdue').value, now = Date.now();
   try {
     await commit(titles.map((title, i) => P('assignments', uid() + i, { title, desc, due, cls, sids, at: now - i })));
-    hwSel = new Set(); hwOpen = ''; hwDraft = { t: ['', '', ''], d: '', due: '' };
+    PK.hw = new Set(); hwDraft = { t: ['', '', ''], d: '', due: '' };
     toast(`과제 ${titles.length}개를 ${sids ? sids.split(',').length + '명에게' : '냈어요'}${sids ? ' 냈어요' : ''}`); render();
   } catch (e) {}
 }
@@ -769,30 +776,39 @@ function tTests() {
   const ts = tests().filter(t => tfilter === 'all' || ttype(t) === tfilter);
   const oldN = tests().filter(t => hasOld(t.title)).length;
   return `${oldN ? `<div class="card" style="border-color:var(--amber)"><b>테스트 이름 정리</b><div class="muted">이름에 "Unit test" 또는 "Daily test"가 들어간 테스트가 ${oldN}개 있어요. 한 번에 <b>마무리셈 / 오늘셈</b>으로 바꿀 수 있어요.</div><button class="btn amber full" onclick="renameOldTests()">${oldN}개 이름 한 번에 바꾸기</button></div>` : ''}<div class="card"><b>테스트 만들기</b>
-    <label>종류</label><div class="seg" style="margin:0">
-      <button id="tt_daily" class="on" onclick="pickType('daily')">오늘셈</button>
-      <button id="tt_unit" onclick="pickType('unit')">마무리셈</button></div>
-    <label>테스트 이름</label><input id="ttitle" placeholder="예: 11/14 오늘셈">
-    <div class="grid2"><div><label>날짜</label><input id="tdate" type="date" value="${today()}"></div><div><label>대상</label>${clsSelect('tcls')}</div></div>
+    <label><b style="color:var(--navy)">① 대상</b> · 반을 누르면 체크, 다시 누르면 해제돼요</label>
+    ${pickerHTML('test')}
+    <label style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)"><b style="color:var(--navy)">② 테스트</b></label>
+    <div class="seg" style="margin:0">
+      <button id="tt_daily" class="${tDraft.type === 'daily' ? 'on' : ''}" onclick="pickType('daily')">오늘셈</button>
+      <button id="tt_unit" class="${tDraft.type === 'unit' ? 'on' : ''}" onclick="pickType('unit')">마무리셈</button></div>
+    <label>테스트 이름</label><input id="ttitle" placeholder="예: 11/14 오늘셈" value="${esc(tDraft.title)}">
+    <label>날짜</label><input id="tdate" type="date" value="${tDraft.date || today()}">
     <button class="btn primary full" onclick="addTest()">만들고 점수 입력하기</button></div>
     <h2>테스트 목록</h2>${testFilterChips()}<div style="height:10px"></div>${ts.length ? ts.map(t => {
       const tg = targets(t), n = tg.filter(s => scoreOf(t.id, s.id)).length;
-      return `<div class="card tap" onclick="openTest('${t.id}')"><div class="row between"><div class="grow">${typeBadge(t)} <b>${esc(t.title)}</b><div class="muted">${md(t.date)} · ${esc(t.cls || '전체')} · 입력 ${n}/${tg.length}</div></div>
+      return `<div class="card tap" onclick="openTest('${t.id}')"><div class="row between"><div class="grow">${typeBadge(t)} <b>${esc(t.title)}</b><div class="muted">${md(t.date)} · ${hwTargetBadge(t)} · 입력 ${n}/${tg.length}</div></div>
         <div style="text-align:right"><div class="score">${testAvg(t) ?? '-'}</div><div class="muted">평균 점수</div></div></div></div>`;
     }).join('') : `<div class="card empty">아직 테스트가 없어요.</div>`}`;
 }
 async function addTest() {
   const title = $('#ttitle').value.trim();
   if (!title) return toast('테스트 이름을 입력해 주세요.');
-  const id = uid(), type = $('#tt_unit').classList.contains('on') ? 'unit' : 'daily';
-  try { const p = put('tests', id, { title, type, date: $('#tdate').value, cls: $('#tcls').value, at: Date.now() }); openTest(id); await p; } catch (e) {}
+  const tg = pkTarget('test');
+  if (!tg) return toast('테스트를 볼 반이나 학생을 골라 주세요.');
+  const id = uid(), type = tDraft.type;
+  const data = { title, type, date: $('#tdate').value, cls: tg.cls, sids: tg.sids, at: Date.now() };
+  PK.test = new Set(); tDraft = { title: '', date: '', type };
+  try { const p = put('tests', id, data); openTest(id); await p; } catch (e) {}
 }
-function pickType(k) { $('#tt_daily').classList.toggle('on', k === 'daily'); $('#tt_unit').classList.toggle('on', k === 'unit'); }
+let tDraft = { title: '', date: '', type: 'daily' };
+function keepTest() { tDraft = { title: ($('#ttitle') || {}).value || '', date: ($('#tdate') || {}).value || '', type: tDraft.type }; formDirty = true; }
+function pickType(k) { tDraft.type = k; $('#tt_daily').classList.toggle('on', k === 'daily'); $('#tt_unit').classList.toggle('on', k === 'unit'); }
 function openTest(tid) {
   openModal(() => {
     const t = S.tests[tid]; if (!t) return null;
     const tg = targets({ ...t, id: tid });
-    return `<h3>${esc(t.title)}</h3><div class="muted">${typeBadge(t)} ${md(t.date)} · ${esc(t.cls || '전체')} · 평균 ${testAvg({ ...t, id: tid }) ?? '-'}</div>
+    return `<h3>${esc(t.title)}</h3><div class="muted">${typeBadge(t)} ${md(t.date)} · ${hwTargetBadge(t)} · 평균 ${testAvg({ ...t, id: tid }) ?? '-'}</div>
       <div class="card list" style="margin-top:14px">${tg.length ? tg.map(s => { const sc = scoreOf(tid, s.id); return `<div class="item">
         <div class="grow"><b>${esc(s.name)}</b> <span class="muted">${esc(s.cls || '')}</span></div>
         <input class="scoreIn" id="sc_${s.id}" type="number" inputmode="numeric" min="0" max="100" value="${sc ? sc.score : ''}" placeholder="-"></div>`; }).join('') : `<div class="empty">대상 학생이 없어요.</div>`}</div>
