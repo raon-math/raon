@@ -157,7 +157,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.19-3';
+const APP_VER = '2026.11.19-4';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -766,7 +766,8 @@ async function delPoint(id) { try { await del('points', id); toast('포인트 �
 
 function tTests() {
   const ts = tests().filter(t => tfilter === 'all' || ttype(t) === tfilter);
-  return `<div class="card"><b>테스트 만들기</b>
+  const oldN = tests().filter(t => hasOld(t.title)).length;
+  return `${oldN ? `<div class="card" style="border-color:var(--amber)"><b>테스트 이름 정리</b><div class="muted">이름에 "Unit test" 또는 "Daily test"가 들어간 테스트가 ${oldN}개 있어요. 한 번에 <b>마무리셈 / 오늘셈</b>으로 바꿀 수 있어요.</div><button class="btn amber full" onclick="renameOldTests()">${oldN}개 이름 한 번에 바꾸기</button></div>` : ''}<div class="card"><b>테스트 만들기</b>
     <label>종류</label><div class="seg" style="margin:0">
       <button id="tt_daily" class="on" onclick="pickType('daily')">오늘셈</button>
       <button id="tt_unit" onclick="pickType('unit')">마무리셈</button></div>
@@ -795,8 +796,25 @@ function openTest(tid) {
         <div class="grow"><b>${esc(s.name)}</b> <span class="muted">${esc(s.cls || '')}</span></div>
         <input class="scoreIn" id="sc_${s.id}" type="number" inputmode="numeric" min="0" max="100" value="${sc ? sc.score : ''}" placeholder="-"></div>`; }).join('') : `<div class="empty">대상 학생이 없어요.</div>`}</div>
       <button class="btn primary full" onclick="saveScores('${tid}')">점수 저장</button>
+      <h2>테스트 정보 수정</h2><div class="card">
+        <label>테스트 이름</label><input id="et_title" value="${esc(t.title)}">
+        <div class="grid2"><div><label>종류</label><select id="et_type"><option value="daily" ${ttype(t) === 'daily' ? 'selected' : ''}>${TT.daily}</option><option value="unit" ${ttype(t) === 'unit' ? 'selected' : ''}>${TT.unit}</option></select></div>
+        <div><label>날짜</label><input id="et_date" type="date" value="${esc(t.date || '')}"></div></div>
+        <button class="btn full" onclick="saveTestInfo('${tid}')">정보 저장</button></div>
       <button class="btn danger full" onclick="arm('dt${tid}',()=>delTest('${tid}'))">${armed === 'dt' + tid ? '한 번 더 누르면 삭제돼요' : '테스트 삭제'}</button>`;
   });
+}
+async function saveTestInfo(tid) {
+  const t = S.tests[tid]; if (!t) return;
+  const title = $('#et_title').value.trim(); if (!title) return toast('테스트 이름을 입력해 주세요.');
+  try { await put('tests', tid, { ...t, title, type: $('#et_type').value, date: $('#et_date').value || t.date }); toast('테스트 정보를 저장했어요'); } catch (e) {}
+}
+const OLD_NAME = new RegExp('(unit|daily)[ ]*test', 'gi');
+const hasOld = s => { OLD_NAME.lastIndex = 0; return OLD_NAME.test(s || ''); };
+async function renameOldTests() {
+  const ops = tests().filter(t => hasOld(t.title)).map(t => P('tests', t.id, { ...S.tests[t.id], title: t.title.replace(OLD_NAME, m => new RegExp('unit', 'i').test(m) ? '마무리셈' : '오늘셈') }));
+  if (!ops.length) return;
+  try { await commit(ops); toast(`테스트 ${ops.length}개의 이름을 바꿨어요`); } catch (e) {}
 }
 async function saveScores(tid) {
   const t = S.tests[tid], ops = [];
