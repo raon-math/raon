@@ -157,7 +157,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.19-4';
+const APP_VER = '2026.11.19-5';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -727,7 +727,8 @@ function tPoints() {
   const st = students(), cls = classes();
   const allHist = Object.entries(S.points).map(([id, v]) => ({ id, ...v })).filter(p => !pFilter || p.sid === pFilter).sort((a, b) => b.at - a.at);
   const hist = allHist.slice(0, pLimit);
-  return `<div class="card"><b>포인트 주기</b>
+  const oldP = Object.values(S.points).filter(x => hasOld(x.reason)).length;
+  return `${oldP ? `<div class="card" style="border-color:var(--amber)"><b>포인트 사유 정리</b><div class="muted">지난 포인트 내역 중 사유에 "Unit test" 또는 "Daily test"가 들어간 기록이 ${oldP}개 있어요. 한 번에 <b>마무리셈 / 오늘셈</b>으로 바꿀 수 있어요. 포인트 점수는 바뀌지 않아요.</div><button class="btn amber full" onclick="renameOldPoints()">${oldP}개 사유 한 번에 바꾸기</button></div>` : ''}<div class="card"><b>포인트 주기</b>
     <div class="chips"><span class="chip" onclick="pSel=new Set(students().map(s=>s.id));render()">전체 학생 선택</span><span class="chip" onclick="pSel=new Set();render()">선택 해제</span></div>
     ${st.length ? `<div class="tiles" style="margin-top:10px">${groupByCls(st).map(([c, ss]) => { const n = ss.filter(s => pSel.has(s.id)).length; return `<div class="tile ptile ${n ? 'on' : ''} ${pOpen === c ? 'open' : ''}" onclick="pOpen=pOpen==='${esc(c)}'?'':'${esc(c)}';render()"><b>${esc(c)}</b><div class="muted" style="font-size:12px">${n ? `<span style="color:var(--navy);font-weight:700">${n}/${ss.length}명 선택</span>` : ss.length + '명'}</div></div>`; }).join('')}</div>` : `<div class="empty">학생을 먼저 등록해 주세요.</div>`}
     ${(() => { const g = groupByCls(st).find(x => x[0] === pOpen); if (!g) return ''; const all = g[1].every(s => pSel.has(s.id)); return `<div class="ppanel"><div class="row between"><b>${esc(pOpen)}</b><span><button class="btn sm" onclick="selGroup(${all ? 'false' : 'true'})">${all ? '이 반 해제' : '이 반 전체 선택'}</button> <button class="btn sm" onclick="pOpen='';render()">닫기</button></span></div>
@@ -736,7 +737,7 @@ function tPoints() {
     <label>포인트 (100 단위)</label><div class="chips" style="margin-top:0">${[100, 200, 300, 500, 1000].map(n => `<span class="chip amtc ${pAmt === n ? 'on' : ''}" data-n="${n}" onclick="pAmt=${n};$('#pamt').value=${n};document.querySelectorAll('.amtc').forEach(e=>e.classList.toggle('on',e.dataset.n=='${n}'))">${n}</span>`).join('')}</div>
     <div class="grid2"><div><label>직접 입력</label><input id="pamt" type="number" inputmode="numeric" step="100" min="100" value="${pAmt}" oninput="pAmt=+this.value||0"></div>
     <div><label>사유</label><input id="preason" value="${esc(pReason)}" placeholder="예: 출석"></div></div>
-    <div class="chips">${['출석', '단원완료', 'Unit test 100점', 'Unit test 90점 이상', 'Unit test 85점 이상', 'Daily test 100점'].map(r => `<span class="chip" onclick="pReason='${r}';$('#preason').value='${r}'">${r}</span>`).join('')}</div>
+    <div class="chips">${['출석', '단원완료', '마무리셈 100점', '마무리셈 90점 이상', '마무리셈 85점 이상', '오늘셈 100점'].map(r => `<span class="chip" onclick="pReason='${r}';$('#preason').value='${r}'">${r}</span>`).join('')}</div>
     <div class="grid2" style="margin-top:4px"><button class="btn amber full" onclick="givePoints(1)">지급 (<span id="pcount">${pSel.size}</span>명)</button><button class="btn danger full" onclick="givePoints(-1)">차감</button></div></div>
     <h2>포인트 내역</h2>
     <select onchange="pFilter=this.value;pLimit=30;render()" style="margin-bottom:10px"><option value="">전체 학생 (최근 순)</option>${st.map(s => `<option value="${s.id}" ${pFilter === s.id ? 'selected' : ''}>${esc(s.name)} ${esc(s.cls || '')}</option>`).join('')}</select>
@@ -815,6 +816,11 @@ async function renameOldTests() {
   const ops = tests().filter(t => hasOld(t.title)).map(t => P('tests', t.id, { ...S.tests[t.id], title: t.title.replace(OLD_NAME, m => new RegExp('unit', 'i').test(m) ? '마무리셈' : '오늘셈') }));
   if (!ops.length) return;
   try { await commit(ops); toast(`테스트 ${ops.length}개의 이름을 바꿨어요`); } catch (e) {}
+}
+async function renameOldPoints() {
+  const ops = Object.entries(S.points).filter(([, x]) => hasOld(x.reason)).map(([id, x]) => P('points', id, { ...x, reason: x.reason.replace(OLD_NAME, m => new RegExp('unit', 'i').test(m) ? '마무리셈' : '오늘셈') }));
+  if (!ops.length) return;
+  try { await commit(ops); toast(`포인트 기록 ${ops.length}개의 사유를 바꿨어요`); } catch (e) {}
 }
 async function saveScores(tid) {
   const t = S.tests[tid], ops = [];
