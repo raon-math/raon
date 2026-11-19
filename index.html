@@ -157,7 +157,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.19-2';
+const APP_VER = '2026.11.19-3';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -639,8 +639,7 @@ let hwOpen = '';
 function hwTile(c) {
   keepHw();
   const g = groupByCls(students()).find(x => x[0] === c);
-  if (g && !g[1].some(s => hwSel.has(s.id))) { g[1].forEach(s => hwSel.add(s.id)); hwOpen = c; }
-  else hwOpen = hwOpen === c ? '' : c;
+  if (g) { const any = g[1].some(s => hwSel.has(s.id)); g[1].forEach(s => any ? hwSel.delete(s.id) : hwSel.add(s.id)); }
   render();
 }
 function hwGroup(on) { keepHw(); const g = groupByCls(students()).find(x => x[0] === hwOpen); if (g) g[1].forEach(s => on ? hwSel.add(s.id) : hwSel.delete(s.id)); render(); }
@@ -670,11 +669,11 @@ function addHwRow() { keepHw(); if (hwDraft.t.length < 10) hwDraft.t.push(''); r
 function tHW() {
   const as = assignments();
   return `<div class="card"><b>새 과제 내기</b>
-    <label><b style="color:var(--navy)">① 대상</b> · 반을 누르면 학생이 체크돼요</label>
+    <label><b style="color:var(--navy)">① 대상</b> · 반을 누르면 체크, 다시 누르면 해제돼요</label>
     <div class="chips" style="margin-top:0"><span class="chip" onclick="keepHw();hwSel=new Set(students().map(s=>s.id));hwOpen='';render()">전체 학생</span><span class="chip" onclick="keepHw();hwSel=new Set();hwOpen='';render()">선택 해제</span></div>
-    ${students().length ? `<div class="tiles" style="margin-top:10px">${groupByCls(students()).map(([c, ss]) => { const n = ss.filter(s => hwSel.has(s.id)).length; return `<div class="tile ptile ${n ? 'on' : ''} ${hwOpen === c ? 'open' : ''}" onclick="hwTile('${esc(c)}')"><b>${esc(c)}</b><div class="muted" style="font-size:12px">${n ? `<span style="color:var(--navy);font-weight:700">${n}/${ss.length}명</span>` : ss.length + '명'}</div></div>`; }).join('')}</div>` : '<div class="empty">학생을 먼저 등록해 주세요.</div>'}
-    ${(() => { const g = groupByCls(students()).find(x => x[0] === hwOpen); if (!g) return ''; const all = g[1].every(s => hwSel.has(s.id)); return `<div class="ppanel"><div class="row between"><b>${esc(hwOpen)}</b><span><button class="btn sm" onclick="hwGroup(${all ? 'false' : 'true'})">${all ? '이 반 해제' : '이 반 전체 선택'}</button> <button class="btn sm" onclick="keepHw();hwOpen='';render()">닫기</button></span></div>
-      ${g[1].map(s => `<label class="check"><input type="checkbox" ${hwSel.has(s.id) ? 'checked' : ''} onchange="keepHw();this.checked?hwSel.add('${s.id}'):hwSel.delete('${s.id}');render()"><span class="grow" style="color:var(--ink)">${esc(s.name)}</span></label>`).join('')}</div>`; })()}
+    ${students().length ? `<div class="tiles" style="margin-top:10px">${groupByCls(students()).map(([c, ss]) => { const n = ss.filter(s => hwSel.has(s.id)).length; return `<div class="tile ptile ${n ? 'on open' : ''}" onclick="hwTile('${esc(c)}')"><b>${esc(c)}</b><div class="muted" style="font-size:12px">${n ? `<span style="color:var(--navy);font-weight:700">${n}/${ss.length}명</span>` : ss.length + '명'}</div></div>`; }).join('')}</div>` : '<div class="empty">학생을 먼저 등록해 주세요.</div>'}
+    ${groupByCls(students()).map(([c, ss]) => { const n = ss.filter(s => hwSel.has(s.id)).length; if (!n) return ''; return `<div class="ppanel"><div class="row between"><b>${esc(c)} <span class="muted" style="font-weight:400">${n}/${ss.length}명</span></b><button class="btn sm" onclick="hwTile('${esc(c)}')">이 반 빼기</button></div>
+      ${ss.map(s => `<label class="check"><input type="checkbox" ${hwSel.has(s.id) ? 'checked' : ''} onchange="keepHw();this.checked?hwSel.add('${s.id}'):hwSel.delete('${s.id}');render()"><span class="grow" style="color:var(--ink)">${esc(s.name)}</span></label>`).join('')}</div>`; }).join('')}
     <div class="muted" style="margin-top:10px">${hwTargetText()}</div>
     <label style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)"><b style="color:var(--navy)">② 과제</b> · 한 칸에 하나씩, 빈칸은 건너뛰어요</label>
     ${hwDraft.t.map((t, i) => `<input class="htitle" style="margin-bottom:8px" placeholder="${['예: 쎈 B단계 32~40번', '예: 오답노트 3문제', '예: 개념원리 p.52~55'].at(i) || '과제 ' + (i + 1)}" value="${esc(t)}">`).join('')}
