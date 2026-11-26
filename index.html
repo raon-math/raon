@@ -157,7 +157,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.26-1';
+const APP_VER = '2026.11.26-2';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -935,8 +935,8 @@ function toggleNotice(id) {
 }
 const clsBadge = cls => cls ? String(cls).split(',').map(c => `<span class="badge b-blue">${esc(c)}</span>`).join(' ') : '<span class="badge b-gray">전체</span>';
 function clsMulti(id) {
-  return `<div class="chips" id="${id}" style="margin-top:0"><span class="chip on" data-c="" onclick="pickCls(this)">전체 학생</span>${classes().map(c => `<span class="chip" data-c="${esc(c)}" onclick="pickCls(this)">${esc(c)}</span>`).join('')}</div>
-    <div class="muted" style="margin-top:6px">반을 여러 개 고를 수 있어요.</div>`;
+  return `<div class="chips" id="${id}" style="margin-top:0"><span class="chip on" data-c="" onclick="pickCls(this)">전체 학생</span>${[...classes(), ...(students().some(s => !s.cls) ? ['개별진도'] : [])].map(c => `<span class="chip" data-c="${esc(c)}" onclick="pickCls(this)">${esc(c)}</span>`).join('')}</div>
+    <div class="muted" style="margin-top:6px">반을 여러 개 고를 수 있어요. 개별진도는 반이 없는 학생들이에요.</div>`;
 }
 function pickCls(el) {
   formDirty = true;
