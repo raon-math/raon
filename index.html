@@ -157,7 +157,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.19-6';
+const APP_VER = '2026.11.26-1';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -635,8 +635,10 @@ async function delStudent(sid) { try { closeModal(); await del('students', sid);
 function clsSelect(id) {
   return `<select id="${id}"><option value="">전체 학생</option>${classes().map(c => `<option>${esc(c)}</option>`).join('')}</select>`;
 }
-const PK = { hw: new Set(), test: new Set() };
-function keepForm(k) { if (k === 'hw') keepHw(); else keepTest(); }
+const PK = { hw: new Set(), test: new Set(), notice: new Set() };
+let nDraft = { title: '', body: '' };
+function keepNotice() { nDraft = { title: ($('#ntitle') || {}).value || '', body: ($('#nbody') || {}).value || '' }; formDirty = true; }
+function keepForm(k) { if (k === 'hw') keepHw(); else if (k === 'notice') keepNotice(); else keepTest(); }
 function pkTile(k, c) {
   keepForm(k);
   const g = groupByCls(students()).find(x => x[0] === c), set = PK[k];
@@ -656,7 +658,7 @@ function pkTarget(k) {
 }
 function pkText(k) {
   const set = PK[k], st = students(), sel = st.filter(s => set.has(s.id));
-  if (!sel.length) return '아직 고른 학생이 없어요.';
+  if (!sel.length) return k === 'notice' ? '아무도 고르지 않으면 <b>전체 학생</b>에게 올라가요.' : '아직 고른 학생이 없어요.';
   if (sel.length === st.length) return '<b>전체 학생</b>이 대상이에요.';
   const parts = groupByCls(st).map(([c, ss]) => { const on = ss.filter(s => set.has(s.id)); if (!on.length) return ''; return on.length === ss.length && c !== '개별진도' ? `<b>${esc(c)} 전체</b>` : on.map(s => esc(s.name)).join(', ') + ` <span class="muted">(${esc(c)})</span>`; }).filter(Boolean);
   return `대상 ${sel.length}명: ` + parts.join(' · ');
@@ -954,7 +956,7 @@ function imageCard(m, teacher) {
 function noticeBlock(student) {
   const list = notices();
   const items = list.map(n => `<div class="ntc" onclick="toggleNotice('${n.id}')">
-      <div class="row between"><b class="grow">${esc(n.title)}${isNew(n) ? '<span class="new">NEW</span>' : ''}</b>${student ? '' : clsBadge(n.cls) + ' '}<span class="muted">${n.at ? fmtTime(n.at).split(' ')[0] : ''}</span></div>
+      <div class="row between"><b class="grow">${esc(n.title)}${isNew(n) ? '<span class="new">NEW</span>' : ''}</b>${student ? '' : hwTargetBadge(n) + ' '}<span class="muted">${n.at ? fmtTime(n.at).split(' ')[0] : ''}</span></div>
       ${openNotice === n.id || (!student) ? `<div class="body">${esc(n.body || '')}</div>` : ''}
       ${!student ? `<div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn sm danger" onclick="event.stopPropagation();arm('dn${n.id}',()=>delNotice('${n.id}'))">${armed === 'dn' + n.id ? '한 번 더 누르면 삭제' : '삭제'}</button></div>` : ''}
     </div>`).join('');
@@ -972,9 +974,11 @@ function zoomImage(id) {
 function tNotice() {
   const list = imgList();
   return `<div class="card"><b>알림사항 쓰기</b>
-    <label>대상</label>${clsMulti('ncls')}
-    <label>제목</label><input id="ntitle" placeholder="예: 11월 셋째 주 보강 안내">
-    <label>내용</label><textarea id="nbody" placeholder="학생들에게 전할 내용을 적어 주세요."></textarea>
+    <label><b style="color:var(--navy)">① 대상</b> · 반을 누르면 체크, 다시 누르면 해제돼요</label>
+    ${pickerHTML('notice')}
+    <label style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)"><b style="color:var(--navy)">② 내용</b></label>
+    <label>제목</label><input id="ntitle" placeholder="예: 11월 셋째 주 보강 안내" value="${esc(nDraft.title)}">
+    <label>내용</label><textarea id="nbody" placeholder="학생들에게 전할 내용을 적어 주세요.">${esc(nDraft.body)}</textarea>
     <button class="btn primary full" onclick="addNotice()">알림 올리기</button></div>
     ${noticeBlock(false)}
     <h2>🗓️ 분기 안내문</h2>
@@ -987,10 +991,11 @@ function tNotice() {
     ${list.length ? `<h2>올린 안내문 (${list.length})</h2>` + list.map(m => imageCard(m, true)).join('') : ''}`;
 }
 async function addNotice() {
-  const title = $('#ntitle').value.trim(), body = $('#nbody').value.trim(), cls = pickedCls('ncls');
+  const title = $('#ntitle').value.trim(), body = $('#nbody').value.trim();
   if (!title) return toast('제목을 입력해 주세요.');
-  formDirty = false;
-  try { await put('notices', uid(), { title, body, cls, at: Date.now() }); toast('알림을 올렸어요'); } catch (e) {}
+  const t = pkTarget('notice') || { cls: '', sids: '' };
+  formDirty = false; PK.notice = new Set(); nDraft = { title: '', body: '' };
+  try { await put('notices', uid(), { title, body, cls: t.cls, sids: t.sids, at: Date.now() }); toast('알림을 올렸어요'); render(); } catch (e) {}
 }
 async function delNotice(id) { try { await del('notices', id); toast('삭제했어요'); } catch (e) {} }
 function shrinkImage(file) {
