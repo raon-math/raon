@@ -157,7 +157,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.26-2';
+const APP_VER = '2026.11.27-1';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -928,9 +928,28 @@ function ensureImage(m) {
 const notices = () => Object.entries(S.notices || {}).map(([id, v]) => ({ id, ...v })).sort((a, b) => (b.at || 0) - (a.at || 0));
 const seenKey = () => 'raon_seen_' + (sess && sess.sid || 't');
 function isNew(n) { const s = LS.get(seenKey()) || []; return sess && sess.role === 'student' && !s.includes(n.id); }
-function toggleNotice(id) {
-  openNotice = openNotice === id ? null : id;
-  const s = LS.get(seenKey()) || []; if (!s.includes(id)) { s.push(id); LS.set(seenKey(), s.slice(-200)); }
+function markSeen(id) { const s = LS.get(seenKey()) || []; if (!s.includes(id)) { s.push(id); LS.set(seenKey(), s.slice(-200)); } }
+function ensureNoticeImg(n) {
+  const key = 'n_' + n.id, cur = imgs[key] || {};
+  if (!n.img || cur.ver === n.img || cur.loading || cur.failed === n.img) return cur;
+  const c = LS.get('raon_img_' + key);
+  if (c && c.ver === n.img && c.data) { imgs[key] = { ver: n.img, data: c.data }; return imgs[key]; }
+  imgs[key] = { ...cur, loading: true };
+  call('getNoticeImage', { nid: n.id }).then(r => { imgs[key] = { ver: n.img, data: r.data }; LS.set('raon_img_' + key, { ver: n.img, data: r.data }); scheduleRender(); })
+    .catch(() => { imgs[key] = { failed: n.img }; scheduleRender(); });
+  return imgs[key];
+}
+const zoomBtn = `<button class="btn sm" style="margin-top:10px" onclick="const i=this.closest('.sheet').querySelector('.zoomwrap img');if(i)i.style.width=i.style.width==='220%'?'100%':'220%'">확대 / 축소</button>`;
+function openNoticeModal(id) {
+  markSeen(id);
+  openModal(() => {
+    const n = S.notices[id]; if (!n) return null;
+    const st = n.img ? ensureNoticeImg({ id, ...n }) : {};
+    return `<h3>${esc(n.title)}</h3><div class="muted">${n.at ? fmtTime(n.at).split(' ')[0] : ''}${sess.role === 'teacher' ? ' · ' + hwTargetBadge(n) : ''}</div>
+      ${n.body ? `<div class="memo" style="margin-top:12px;font-size:15px">${esc(n.body)}</div>` : ''}
+      ${n.img ? (st.data ? `${zoomBtn}<div class="zoomwrap"><img src="${st.data}" style="width:100%"></div>` : `<div class="imgph">${st.failed ? '이미지를 불러오지 못했어요.' : '이미지를 불러오는 중…'}</div>`) : ''}
+      ${sess.role === 'teacher' ? `<button class="btn danger full" onclick="arm('dn${id}',()=>{closeModal();delNotice('${id}')})">${armed === 'dn' + id ? '한 번 더 누르면 삭제돼요' : '이 알림 삭제'}</button>` : ''}`;
+  });
   render();
 }
 const clsBadge = cls => cls ? String(cls).split(',').map(c => `<span class="badge b-blue">${esc(c)}</span>`).join(' ') : '<span class="badge b-gray">전체</span>';
@@ -955,21 +974,20 @@ function imageCard(m, teacher) {
 }
 function noticeBlock(student) {
   const list = notices();
-  const items = list.map(n => `<div class="ntc" onclick="toggleNotice('${n.id}')">
-      <div class="row between"><b class="grow">${esc(n.title)}${isNew(n) ? '<span class="new">NEW</span>' : ''}</b>${student ? '' : hwTargetBadge(n) + ' '}<span class="muted">${n.at ? fmtTime(n.at).split(' ')[0] : ''}</span></div>
-      ${openNotice === n.id || (!student) ? `<div class="body">${esc(n.body || '')}</div>` : ''}
+  const legacy = student ? imgList().map(m => `<div class="ntc" onclick="zoomImage('${m.id}')"><div class="row between"><b class="grow">🗓️ ${esc(m.title || '분기 안내')}</b><span class="muted">눌러서 보기 ›</span></div></div>`).join('') : '';
+  const items = legacy + list.map(n => `<div class="ntc" onclick="openNoticeModal('${n.id}')">
+      <div class="row between"><b class="grow">${n.img ? '🖼️ ' : ''}${esc(n.title)}${isNew(n) ? '<span class="new">NEW</span>' : ''}</b>${student ? '' : hwTargetBadge(n) + ' '}<span class="muted">${n.at ? fmtTime(n.at).split(' ')[0] : ''} ›</span></div>
       ${!student ? `<div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn sm danger" onclick="event.stopPropagation();arm('dn${n.id}',()=>delNotice('${n.id}'))">${armed === 'dn' + n.id ? '한 번 더 누르면 삭제' : '삭제'}</button></div>` : ''}
     </div>`).join('');
-  return (list.length || !student ? `<h2>📢 알림사항</h2><div class="card list">${items || '<div class="empty">아직 알림사항이 없어요.</div>'}</div>` : '')
-    + (student ? imgList().map(m => imageCard(m, false)).join('') : '');
+  return (items || !student ? `<h2>📢 알림사항</h2><div class="card list">${items || '<div class="empty">아직 알림사항이 없어요.</div>'}</div>` : '');
 }
 function zoomImage(id) {
-  const m = imgList().find(x => x.id === id), st = imgs[id] || {};
-  if (!m || !st.data) return;
-  openModal(() => `<h3>${esc(m.title || '분기 안내')}</h3>
-    <div class="muted">옆으로 밀어서 볼 수 있어요.</div>
-    <button class="btn sm" style="margin-top:10px" onclick="const i=this.closest('.sheet').querySelector('.zoomwrap img');i.style.width=i.style.width==='220%'?'100%':'220%'">확대 / 축소</button>
-    <div class="zoomwrap"><img src="${st.data}" style="width:100%"></div>`);
+  openModal(() => {
+    const m = imgList().find(x => x.id === id); if (!m) return null;
+    const st = ensureImage(m);
+    return `<h3>${esc(m.title || '분기 안내')}</h3>
+    ${st.data && st.ver === m.ver ? `<div class="muted">옆으로 밀어서 볼 수 있어요.</div>${zoomBtn}<div class="zoomwrap"><img src="${st.data}" style="width:100%"></div>` : `<div class="imgph">${st.failed === m.ver ? '이미지를 불러오지 못했어요.' : '불러오는 중…'}</div>`}`;
+  });
 }
 function tNotice() {
   const list = imgList();
@@ -979,11 +997,12 @@ function tNotice() {
     <label style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)"><b style="color:var(--navy)">② 내용</b></label>
     <label>제목</label><input id="ntitle" placeholder="예: 11월 셋째 주 보강 안내" value="${esc(nDraft.title)}">
     <label>내용</label><textarea id="nbody" placeholder="학생들에게 전할 내용을 적어 주세요.">${esc(nDraft.body)}</textarea>
-    <button class="btn primary full" onclick="addNotice()">알림 올리기</button></div>
+    <label>이미지 (선택) · 분기 일정표나 안내문 사진을 붙일 수 있어요</label><input id="nfile" type="file" accept="${'image/' + '*'}" onchange="formDirty=true">
+    <button class="btn primary full" ${imgBusy ? 'disabled' : ''} onclick="addNotice()">${imgBusy ? '올리는 중…' : '알림 올리기'}</button></div>
     ${noticeBlock(false)}
     <h2>🗓️ 분기 안내문</h2>
-    <div class="card"><b>분기 안내문 올리기</b>
-    <div class="muted">같은 요일 반들은 함께 골라서 한 장으로 올리면 돼요. 학생은 <b>자기 반 안내문</b>과 <b>전체 학생용 안내문</b>을 함께 봐요. 이미 안내문이 있는 반을 다시 고르면 그 반은 새 안내문으로 바뀌어요.</div>
+    <div class="card"><b>반별 분기 안내문 올리기</b>
+    <div class="muted">반마다 한 장만 두는 안내문이에요. 같은 반으로 새로 올리면 <b>앞의 이미지가 바뀌어요.</b> 계속 쌓이게 하려면 위의 <b>알림사항에 이미지를 붙여</b> 올리세요.</div>
     <label>대상</label>${clsMulti('nimgCls')}
     <label>제목</label><input id="nimgTitle" placeholder="예: 2026년 4분기 휴원 안내">
     <label>이미지 파일</label><input id="nimgFile" type="file" accept="${'image/' + '*'}" onchange="formDirty=true">
@@ -993,9 +1012,16 @@ function tNotice() {
 async function addNotice() {
   const title = $('#ntitle').value.trim(), body = $('#nbody').value.trim();
   if (!title) return toast('제목을 입력해 주세요.');
-  const t = pkTarget('notice') || { cls: '', sids: '' };
+  const t = pkTarget('notice') || { cls: '', sids: '' }, f = ($('#nfile') || {}).files && $('#nfile').files[0], id = uid();
+  let img = '';
+  if (f) {
+    imgBusy = true; toast('이미지를 올리는 중이에요…');
+    try { const data = await shrinkImage(f); const r = await call('setNoticeImage', { nid: id, data }); img = r.ver; imgs['n_' + id] = { ver: img, data }; LS.set('raon_img_n_' + id, { ver: img, data }); }
+    catch (e) { imgBusy = false; return toast(e.message); }
+    imgBusy = false;
+  }
   formDirty = false; PK.notice = new Set(); nDraft = { title: '', body: '' };
-  try { await put('notices', uid(), { title, body, cls: t.cls, sids: t.sids, at: Date.now() }); toast('알림을 올렸어요'); render(); } catch (e) {}
+  try { await put('notices', id, { title, body, cls: t.cls, sids: t.sids, img, at: Date.now() }); toast('알림을 올렸어요'); render(); } catch (e) {}
 }
 async function delNotice(id) { try { await del('notices', id); toast('삭제했어요'); } catch (e) {} }
 function shrinkImage(file) {
