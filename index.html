@@ -157,8 +157,8 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.27-1';
-const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'config'];
+const APP_VER = '2026.11.27-2';
+const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'lectures', 'apps', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
 const API_URL = String((window.RAON_CONFIG && window.RAON_CONFIG.API_URL) || '').trim();
@@ -216,7 +216,7 @@ async function load(quiet) {
   try {
     const d = await call('getData');
     if (my !== loadSeq || syncing) return;
-    COLS.forEach(c => S[c] = d[c] || {}); S.avgs = d.avgs || null; S.pwSet = d.pwSet || [];
+    COLS.forEach(c => S[c] = d[c] || {}); S.avgs = d.avgs || null; S.pwSet = d.pwSet || []; S.lecCounts = d.lecCounts || null;
     loaded = true; loadNote = ''; scheduleRender();
   } catch (e) {
     if (my !== loadSeq) return;
@@ -224,7 +224,7 @@ async function load(quiet) {
     loadNote = e.message; scheduleRender();
   }
 }
-const CASC = { assignments: [['subs', 'aid']], tests: [['scores', 'tid']], students: [['subs', 'sid'], ['points', 'sid'], ['scores', 'sid']] };
+const CASC = { assignments: [['subs', 'aid']], tests: [['scores', 'tid']], lectures: [['apps', 'lid']], students: [['subs', 'sid'], ['points', 'sid'], ['scores', 'sid'], ['apps', 'sid']] };
 function applyLocal(ops) {
   ops.forEach(o => {
     if (o.op === 'put') S[o.c][o.id] = { ...o.d };
@@ -405,7 +405,7 @@ function renderStudent(st) {
   let body = '';
   if (stab === 'home') {
     const lastT = myTests.find(t => scoreOf(t.id, sid));
-    body = noticeBlock(true) + `
+    body = noticeBlock(true) + lectureBlock() + `
       <div class="stats">
         <div class="stat"><b>${todo.length}</b><span>남은 과제</span></div>
         <div class="stat"><b>${my.length - todo.length}</b><span>제출한 과제</span></div>
@@ -635,10 +635,10 @@ async function delStudent(sid) { try { closeModal(); await del('students', sid);
 function clsSelect(id) {
   return `<select id="${id}"><option value="">전체 학생</option>${classes().map(c => `<option>${esc(c)}</option>`).join('')}</select>`;
 }
-const PK = { hw: new Set(), test: new Set(), notice: new Set() };
+const PK = { hw: new Set(), test: new Set(), notice: new Set(), lec: new Set() };
 let nDraft = { title: '', body: '' };
 function keepNotice() { nDraft = { title: ($('#ntitle') || {}).value || '', body: ($('#nbody') || {}).value || '' }; formDirty = true; }
-function keepForm(k) { if (k === 'hw') keepHw(); else if (k === 'notice') keepNotice(); else keepTest(); }
+function keepForm(k) { if (k === 'hw') keepHw(); else if (k === 'notice') keepNotice(); else if (k === 'lec') keepLec(); else keepTest(); }
 function pkTile(k, c) {
   keepForm(k);
   const g = groupByCls(students()).find(x => x[0] === c), set = PK[k];
@@ -990,8 +990,10 @@ function zoomImage(id) {
   });
 }
 function tNotice() {
+  const seg = `<div class="seg" style="margin-bottom:14px"><button class="${nTab === 'notice' ? 'on' : ''}" onclick="nTab='notice';render()">📢 알림·안내문</button><button class="${nTab === 'lec' ? 'on' : ''}" onclick="nTab='lec';render()">🎓 특강 신청</button></div>`;
+  if (nTab === 'lec') return seg + tLectures();
   const list = imgList();
-  return `<div class="card"><b>알림사항 쓰기</b>
+  return seg + `<div class="card"><b>알림사항 쓰기</b>
     <label><b style="color:var(--navy)">① 대상</b> · 반을 누르면 체크, 다시 누르면 해제돼요</label>
     ${pickerHTML('notice')}
     <label style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)"><b style="color:var(--navy)">② 내용</b></label>
@@ -1062,6 +1064,79 @@ async function delImage(id) {
     delete imgs[id]; toast('이미지를 내렸어요'); render();
   } catch (e) { toast(e.message); }
 }
+let nTab = 'notice', lDraft = { title: '', desc: '', deadline: '', cap: '', slots: ['', '', ''] };
+function keepLec() {
+  const g = id => ($(id) || {}).value || '';
+  lDraft = { title: g('#ltitle'), desc: g('#ldesc'), deadline: g('#ldead'), cap: g('#lcap'), slots: [...document.querySelectorAll('.lslot')].map(x => x.value) };
+  formDirty = true;
+}
+function addLecRow() { keepLec(); if (lDraft.slots.length < 8) lDraft.slots.push(''); render(); }
+const lectures = () => Object.entries(S.lectures || {}).map(([id, v]) => ({ id, ...v })).sort((a, b) => (b.at || 0) - (a.at || 0));
+const slotsOf = l => { const s = String(l.slots || '').split('|').map(x => x.trim()).filter(Boolean); return s.length ? s : ['신청']; };
+const lecOpen = l => l.closed !== 'y' && (!l.deadline || l.deadline >= today());
+const lecApps = lid => Object.values(S.apps || {}).filter(a => a.lid === lid);
+function lecCount(lid, slot) {
+  if (sess.role === 'student' && S.lecCounts) return ((S.lecCounts[lid] || {})[slot]) || 0;
+  return lecApps(lid).filter(a => a.slot === slot).length;
+}
+function tLectures() {
+  const list = lectures();
+  return `<div class="card"><b>특강 신청 만들기</b>
+    <label><b style="color:var(--navy)">① 대상</b> · 반을 누르면 체크, 다시 누르면 해제돼요</label>
+    ${pickerHTML('lec')}
+    <label style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)"><b style="color:var(--navy)">② 특강 정보</b></label>
+    <label>특강 이름</label><input id="ltitle" placeholder="예: 겨울방학 중등 선행 특강" value="${esc(lDraft.title)}">
+    <label>설명 (선택)</label><textarea id="ldesc" placeholder="기간, 내용, 준비물, 수강료 등">${esc(lDraft.desc)}</textarea>
+    <label>시간대 (한 칸에 하나씩, 모두 비우면 시간대 없이 신청만 받아요)</label>
+    ${lDraft.slots.map((s, i) => `<input class="lslot" style="margin-bottom:8px" placeholder="${['예: 월·수 오후 3시', '예: 화·목 오후 5시', '예: 토 오전 10시'].at(i) || '시간대 ' + (i + 1)}" value="${esc(s)}">`).join('')}
+    <button class="btn sm" onclick="addLecRow()">＋ 시간대 추가</button>
+    <div class="grid2"><div><label>신청 마감일</label><input id="ldead" type="date" value="${lDraft.deadline}"></div><div><label>정원 (시간대마다)</label><input id="lcap" type="number" inputmode="numeric" min="0" placeholder="비우면 제한 없음" value="${esc(lDraft.cap)}"></div></div>
+    <button class="btn primary full" onclick="addLecture()">특강 신청 열기</button></div>
+    <h2>특강 신청 현황</h2>${list.length ? list.map(l => {
+      const tg = targets(l), apps = lecApps(l.id), cap = +l.cap || 0, applied = new Set(apps.map(a => a.sid));
+      const none = tg.filter(s => !applied.has(s.id));
+      return `<div class="card"><div class="row between"><b class="grow">🎓 ${esc(l.title)}</b>${lecOpen(l) ? '<span class="badge b-blue">신청 중</span>' : '<span class="badge b-gray">마감</span>'}</div>
+        <div class="muted">${hwTargetBadge(l)}${l.deadline ? ' · 신청 마감 ' + md(l.deadline) : ''} · 신청 ${apps.length}명</div>
+        ${l.desc ? `<div class="memo">${esc(l.desc)}</div>` : ''}
+        ${slotsOf(l).map(sl => { const who = apps.filter(a => a.slot === sl).map(a => (S.students[a.sid] || {}).name || '삭제된 학생'); return `<div class="hwrow" style="cursor:default"><div class="row between"><b class="grow">${esc(sl)}</b><b>${who.length}${cap ? '/' + cap : ''}명</b></div>${cap ? `<div class="bar"><i style="width:${Math.min(100, who.length / cap * 100)}%"></i></div>` : ''}<div class="muted" style="margin-top:4px">${who.length ? who.map(esc).join(', ') : '아직 신청자가 없어요'}</div></div>`; }).join('')}
+        ${none.length ? `<div class="muted" style="margin-top:8px">미신청 ${none.length}명: ${none.map(s => esc(s.name)).join(', ')}</div>` : ''}
+        <div class="grid2" style="margin-top:12px"><button class="btn" onclick="toggleLecClose('${l.id}')">${l.closed === 'y' ? '다시 열기' : '지금 마감하기'}</button><button class="btn danger" onclick="arm('dl${l.id}',()=>delLecture('${l.id}'))">${armed === 'dl' + l.id ? '한 번 더 누르면 삭제' : '삭제'}</button></div></div>`;
+    }).join('') : `<div class="card empty">아직 만든 특강이 없어요.</div>`}`;
+}
+async function addLecture() {
+  const title = $('#ltitle').value.trim();
+  if (!title) return toast('특강 이름을 입력해 주세요.');
+  const t = pkTarget('lec');
+  if (!t) return toast('신청 받을 반이나 학생을 골라 주세요.');
+  const slots = [...document.querySelectorAll('.lslot')].map(x => x.value.trim().replace(new RegExp('[|]', 'g'), ' ')).filter(Boolean);
+  const cap = parseInt($('#lcap').value, 10) || 0;
+  const data = { title, desc: $('#ldesc').value.trim(), cls: t.cls, sids: t.sids, deadline: $('#ldead').value, slots: slots.join('|'), cap, closed: '', at: Date.now() };
+  formDirty = false; PK.lec = new Set(); lDraft = { title: '', desc: '', deadline: '', cap: '', slots: ['', '', ''] };
+  try { await put('lectures', uid(), data); toast('특강 신청을 열었어요'); render(); } catch (e) {}
+}
+async function toggleLecClose(id) { const l = S.lectures[id]; try { await put('lectures', id, { ...l, closed: l.closed === 'y' ? '' : 'y' }); toast(l.closed === 'y' ? '다시 열었어요' : '마감했어요'); } catch (e) {} }
+async function delLecture(id) { try { await del('lectures', id); toast('특강을 삭제했어요'); } catch (e) {} }
+function lectureBlock() {
+  const mine = new Map(Object.values(S.apps || {}).filter(a => a.sid === sess.sid).map(a => [a.lid, a.slot]));
+  const list = lectures().filter(l => lecOpen(l) || mine.has(l.id));
+  if (!list.length) return '';
+  return `<h2>🎓 특강 신청</h2>` + list.map(l => {
+    const my = mine.get(l.id), open = lecOpen(l), cap = +l.cap || 0;
+    return `<div class="card"><div class="row between"><b class="grow">${esc(l.title)}</b>${my ? '<span class="badge b-green">신청 완료</span>' : open ? '<span class="badge b-blue">신청 중</span>' : '<span class="badge b-gray">마감</span>'}</div>
+      ${l.deadline ? `<div class="muted">신청 마감 ${md(l.deadline)}</div>` : ''}
+      ${l.desc ? `<div class="memo">${esc(l.desc)}</div>` : ''}
+      ${slotsOf(l).map((sl, si) => { const n = lecCount(l.id, sl), full = cap && n >= cap && my !== sl, isMine = my === sl;
+        return `<div class="row between" style="margin-top:10px;gap:8px"><div class="grow"><b>${esc(sl)}</b>${cap ? `<div class="muted" style="font-size:12px">${n}/${cap}명</div>` : ''}</div>
+          ${isMine ? `<span class="badge b-green">✓ 신청됨</span>${open ? ` <button class="btn sm" onclick="cancelLec('${l.id}')">취소</button>` : ''}`
+            : !open ? '' : full ? '<span class="badge b-gray">정원 마감</span>' : `<button class="btn sm primary" onclick="applyLec('${l.id}',${si})">${my ? '이 시간으로 변경' : '신청하기'}</button>`}</div>`; }).join('')}
+    </div>`;
+  }).join('');
+}
+async function applyLec(lid, si) {
+  const l = S.lectures[lid]; if (!l) return; const slot = slotsOf(l)[si];
+  try { await put('apps', lid + '__' + sess.sid, { lid, sid: sess.sid, slot, at: Date.now() }); toast('특강을 신청했어요!'); } catch (e) {}
+}
+async function cancelLec(lid) { try { await del('apps', lid + '__' + sess.sid); toast('신청을 취소했어요'); } catch (e) {} }
 function openModal(fn) { modalFn = fn; renderModal(); }
 function closeModal() { modalFn = null; armed = ''; $('#modal').innerHTML = ''; }
 function renderModal() {
