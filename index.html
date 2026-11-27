@@ -157,7 +157,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.27-2';
+const APP_VER = '2026.11.28-1';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'lectures', 'apps', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -1096,7 +1096,7 @@ function tLectures() {
       const tg = targets(l), apps = lecApps(l.id), cap = +l.cap || 0, applied = new Set(apps.map(a => a.sid));
       const none = tg.filter(s => !applied.has(s.id));
       return `<div class="card"><div class="row between"><b class="grow">🎓 ${esc(l.title)}</b>${lecOpen(l) ? '<span class="badge b-blue">신청 중</span>' : '<span class="badge b-gray">마감</span>'}</div>
-        <div class="muted">${hwTargetBadge(l)}${l.deadline ? ' · 신청 마감 ' + md(l.deadline) : ''} · 신청 ${apps.length}명</div>
+        <div class="muted">${hwTargetBadge(l)}${l.deadline ? ' · 신청 마감 ' + md(l.deadline) : ''} · 신청 학생 ${applied.size}명${apps.length > applied.size ? ` (신청 ${apps.length}건)` : ''}</div>
         ${l.desc ? `<div class="memo">${esc(l.desc)}</div>` : ''}
         ${slotsOf(l).map(sl => { const who = apps.filter(a => a.slot === sl).map(a => (S.students[a.sid] || {}).name || '삭제된 학생'); return `<div class="hwrow" style="cursor:default"><div class="row between"><b class="grow">${esc(sl)}</b><b>${who.length}${cap ? '/' + cap : ''}명</b></div>${cap ? `<div class="bar"><i style="width:${Math.min(100, who.length / cap * 100)}%"></i></div>` : ''}<div class="muted" style="margin-top:4px">${who.length ? who.map(esc).join(', ') : '아직 신청자가 없어요'}</div></div>`; }).join('')}
         ${none.length ? `<div class="muted" style="margin-top:8px">미신청 ${none.length}명: ${none.map(s => esc(s.name)).join(', ')}</div>` : ''}
@@ -1117,26 +1117,33 @@ async function addLecture() {
 async function toggleLecClose(id) { const l = S.lectures[id]; try { await put('lectures', id, { ...l, closed: l.closed === 'y' ? '' : 'y' }); toast(l.closed === 'y' ? '다시 열었어요' : '마감했어요'); } catch (e) {} }
 async function delLecture(id) { try { await del('lectures', id); toast('특강을 삭제했어요'); } catch (e) {} }
 function lectureBlock() {
-  const mine = new Map(Object.values(S.apps || {}).filter(a => a.sid === sess.sid).map(a => [a.lid, a.slot]));
-  const list = lectures().filter(l => lecOpen(l) || mine.has(l.id));
+  const myApps = Object.entries(S.apps || {}).filter(([, a]) => a.sid === sess.sid);
+  const mySlots = lid => myApps.filter(([, a]) => a.lid === lid).map(([, a]) => a.slot);
+  const list = lectures().filter(l => lecOpen(l) || mySlots(l.id).length);
   if (!list.length) return '';
   return `<h2>🎓 특강 신청</h2>` + list.map(l => {
-    const my = mine.get(l.id), open = lecOpen(l), cap = +l.cap || 0;
+    const mine = mySlots(l.id), my = mine.length, open = lecOpen(l), cap = +l.cap || 0;
     return `<div class="card"><div class="row between"><b class="grow">${esc(l.title)}</b>${my ? '<span class="badge b-green">신청 완료</span>' : open ? '<span class="badge b-blue">신청 중</span>' : '<span class="badge b-gray">마감</span>'}</div>
       ${l.deadline ? `<div class="muted">신청 마감 ${md(l.deadline)}</div>` : ''}
       ${l.desc ? `<div class="memo">${esc(l.desc)}</div>` : ''}
-      ${slotsOf(l).map((sl, si) => { const n = lecCount(l.id, sl), full = cap && n >= cap && my !== sl, isMine = my === sl;
+      ${slotsOf(l).length > 1 && open ? '<div class="muted" style="font-size:12px;margin-top:6px">여러 시간대를 함께 신청할 수 있어요.</div>' : ''}
+      ${slotsOf(l).map((sl, si) => { const isMine = mine.includes(sl), n = lecCount(l.id, sl), full = cap && n >= cap && !isMine;
         return `<div class="row between" style="margin-top:10px;gap:8px"><div class="grow"><b>${esc(sl)}</b>${cap ? `<div class="muted" style="font-size:12px">${n}/${cap}명</div>` : ''}</div>
-          ${isMine ? `<span class="badge b-green">✓ 신청됨</span>${open ? ` <button class="btn sm" onclick="cancelLec('${l.id}')">취소</button>` : ''}`
-            : !open ? '' : full ? '<span class="badge b-gray">정원 마감</span>' : `<button class="btn sm primary" onclick="applyLec('${l.id}',${si})">${my ? '이 시간으로 변경' : '신청하기'}</button>`}</div>`; }).join('')}
+          ${isMine ? `<span class="badge b-green">✓ 신청됨</span>${open ? ` <button class="btn sm" onclick="cancelLec('${l.id}',${si})">취소</button>` : ''}`
+            : !open ? '' : full ? '<span class="badge b-gray">정원 마감</span>' : `<button class="btn sm primary" onclick="applyLec('${l.id}',${si})">신청하기</button>`}</div>`; }).join('')}
     </div>`;
   }).join('');
 }
 async function applyLec(lid, si) {
   const l = S.lectures[lid]; if (!l) return; const slot = slotsOf(l)[si];
-  try { await put('apps', lid + '__' + sess.sid, { lid, sid: sess.sid, slot, at: Date.now() }); toast('특강을 신청했어요!'); } catch (e) {}
+  try { await put('apps', lid + '__' + sess.sid + '__' + si, { lid, sid: sess.sid, slot, at: Date.now() }); toast(slot + ' 신청했어요!'); } catch (e) {}
 }
-async function cancelLec(lid) { try { await del('apps', lid + '__' + sess.sid); toast('신청을 취소했어요'); } catch (e) {} }
+async function cancelLec(lid, si) {
+  const l = S.lectures[lid]; if (!l) return; const slot = slotsOf(l)[si];
+  const e = Object.entries(S.apps || {}).find(([, a]) => a.lid === lid && a.sid === sess.sid && a.slot === slot);
+  if (!e) return;
+  try { await del('apps', e[0]); toast(slot + ' 신청을 취소했어요'); } catch (err) {}
+}
 function openModal(fn) { modalFn = fn; renderModal(); }
 function closeModal() { modalFn = null; armed = ''; $('#modal').innerHTML = ''; }
 function renderModal() {
