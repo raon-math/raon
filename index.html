@@ -157,7 +157,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.28-1';
+const APP_VER = '2026.11.28-2';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'lectures', 'apps', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -635,10 +635,10 @@ async function delStudent(sid) { try { closeModal(); await del('students', sid);
 function clsSelect(id) {
   return `<select id="${id}"><option value="">전체 학생</option>${classes().map(c => `<option>${esc(c)}</option>`).join('')}</select>`;
 }
-const PK = { hw: new Set(), test: new Set(), notice: new Set(), lec: new Set() };
+const PK = { hw: new Set(), test: new Set(), notice: new Set(), lec: new Set(), e: new Set() };
 let nDraft = { title: '', body: '' };
 function keepNotice() { nDraft = { title: ($('#ntitle') || {}).value || '', body: ($('#nbody') || {}).value || '' }; formDirty = true; }
-function keepForm(k) { if (k === 'hw') keepHw(); else if (k === 'notice') keepNotice(); else if (k === 'lec') keepLec(); else keepTest(); }
+function keepForm(k) { if (k === 'hw') keepHw(); else if (k === 'notice') keepNotice(); else if (k === 'lec') keepLec(); else if (k === 'e') keepEdit(); else keepTest(); }
 function pkTile(k, c) {
   keepForm(k);
   const g = groupByCls(students()).find(x => x[0] === c), set = PK[k];
@@ -724,6 +724,7 @@ function openHW(aid) {
             <button class="btn sm primary" onclick="checkSub('${aid}','${s.id}',false)">확인</button></div>`}
         </div>`;
       }).join('')).join('') : `<div class="card empty">대상 학생이 없어요.</div>`}
+      <button class="btn full" onclick="openEdit('hw','${aid}')">✏️ 과제 수정</button>
       <button class="btn danger full" onclick="arm('dh${aid}',()=>delHW('${aid}'))">${armed === 'dh' + aid ? '한 번 더 누르면 삭제돼요' : '과제 삭제'}</button>`;
   });
 }
@@ -948,7 +949,7 @@ function openNoticeModal(id) {
     return `<h3>${esc(n.title)}</h3><div class="muted">${n.at ? fmtTime(n.at).split(' ')[0] : ''}${sess.role === 'teacher' ? ' · ' + hwTargetBadge(n) : ''}</div>
       ${n.body ? `<div class="memo" style="margin-top:12px;font-size:15px">${esc(n.body)}</div>` : ''}
       ${n.img ? (st.data ? `${zoomBtn}<div class="zoomwrap"><img src="${st.data}" style="width:100%"></div>` : `<div class="imgph">${st.failed ? '이미지를 불러오지 못했어요.' : '이미지를 불러오는 중…'}</div>`) : ''}
-      ${sess.role === 'teacher' ? `<button class="btn danger full" onclick="arm('dn${id}',()=>{closeModal();delNotice('${id}')})">${armed === 'dn' + id ? '한 번 더 누르면 삭제돼요' : '이 알림 삭제'}</button>` : ''}`;
+      ${sess.role === 'teacher' ? `<button class="btn full" onclick="openEdit('notice','${id}')">✏️ 수정</button><button class="btn danger full" onclick="arm('dn${id}',()=>{closeModal();delNotice('${id}')})">${armed === 'dn' + id ? '한 번 더 누르면 삭제돼요' : '이 알림 삭제'}</button>` : ''}`;
   });
   render();
 }
@@ -1100,7 +1101,8 @@ function tLectures() {
         ${l.desc ? `<div class="memo">${esc(l.desc)}</div>` : ''}
         ${slotsOf(l).map(sl => { const who = apps.filter(a => a.slot === sl).map(a => (S.students[a.sid] || {}).name || '삭제된 학생'); return `<div class="hwrow" style="cursor:default"><div class="row between"><b class="grow">${esc(sl)}</b><b>${who.length}${cap ? '/' + cap : ''}명</b></div>${cap ? `<div class="bar"><i style="width:${Math.min(100, who.length / cap * 100)}%"></i></div>` : ''}<div class="muted" style="margin-top:4px">${who.length ? who.map(esc).join(', ') : '아직 신청자가 없어요'}</div></div>`; }).join('')}
         ${none.length ? `<div class="muted" style="margin-top:8px">미신청 ${none.length}명: ${none.map(s => esc(s.name)).join(', ')}</div>` : ''}
-        <div class="grid2" style="margin-top:12px"><button class="btn" onclick="toggleLecClose('${l.id}')">${l.closed === 'y' ? '다시 열기' : '지금 마감하기'}</button><button class="btn danger" onclick="arm('dl${l.id}',()=>delLecture('${l.id}'))">${armed === 'dl' + l.id ? '한 번 더 누르면 삭제' : '삭제'}</button></div></div>`;
+        <button class="btn full" onclick="openEdit('lec','${l.id}')">✏️ 수정</button>
+        <div class="grid2" style="margin-top:8px"><button class="btn" onclick="toggleLecClose('${l.id}')">${l.closed === 'y' ? '다시 열기' : '지금 마감하기'}</button><button class="btn danger" onclick="arm('dl${l.id}',()=>delLecture('${l.id}'))">${armed === 'dl' + l.id ? '한 번 더 누르면 삭제' : '삭제'}</button></div></div>`;
     }).join('') : `<div class="card empty">아직 만든 특강이 없어요.</div>`}`;
 }
 async function addLecture() {
@@ -1143,6 +1145,82 @@ async function cancelLec(lid, si) {
   const e = Object.entries(S.apps || {}).find(([, a]) => a.lid === lid && a.sid === sess.sid && a.slot === slot);
   if (!e) return;
   try { await del('apps', e[0]); toast(slot + ' 신청을 취소했어요'); } catch (err) {}
+}
+let ED = null;
+function openEdit(kind, id) {
+  const src = kind === 'notice' ? S.notices[id] : kind === 'lec' ? S.lectures[id] : S.assignments[id];
+  if (!src) return;
+  ED = { kind, id, title: src.title || '', body: src.body || '', desc: src.desc || '', due: src.due || '', deadline: src.deadline || '', cap: src.cap ? String(src.cap) : '',
+    slots: kind === 'lec' ? String(src.slots || '').split('|').filter(Boolean) : [], dropImg: false };
+  if (kind === 'lec' && !ED.slots.length) ED.slots = [''];
+  PK.e = new Set(targets({ ...src, id }).map(s => s.id));
+  openModal(editHTML);
+}
+function keepEdit() {
+  if (!ED) return;
+  const g = (id, d) => { const x = $(id); return x ? x.value : d; };
+  ED.title = g('#e_title', ED.title); ED.body = g('#e_body', ED.body); ED.desc = g('#e_desc', ED.desc);
+  ED.due = g('#e_due', ED.due); ED.deadline = g('#e_dead', ED.deadline); ED.cap = g('#e_cap', ED.cap);
+  const sl = [...document.querySelectorAll('.e_slot')]; if (sl.length) ED.slots = sl.map(x => x.value);
+  const di = $('#e_dropimg'); if (di) ED.dropImg = di.checked;
+}
+function editHTML() {
+  const e = ED; if (!e) return null;
+  const name = { notice: '알림사항', lec: '특강', hw: '과제' }[e.kind];
+  const src = e.kind === 'notice' ? S.notices[e.id] : e.kind === 'lec' ? S.lectures[e.id] : S.assignments[e.id];
+  if (!src) return null;
+  let f = `<label>${name} 이름</label><input id="e_title" value="${esc(e.title)}">`;
+  if (e.kind === 'notice') f += `<label>내용</label><textarea id="e_body">${esc(e.body)}</textarea>
+    <label>이미지 바꾸기 (선택)</label><input id="e_file" type="file" accept="${'image/' + '*'}">
+    ${src.img ? `<label class="check"><input id="e_dropimg" type="checkbox" ${e.dropImg ? 'checked' : ''}><span style="color:var(--ink)">붙어 있는 이미지 빼기</span></label>` : ''}`;
+  if (e.kind === 'hw') f += `<label>설명</label><textarea id="e_desc">${esc(e.desc)}</textarea><label>마감일</label><input id="e_due" type="date" value="${esc(e.due)}">`;
+  if (e.kind === 'lec') f += `<label>설명</label><textarea id="e_desc">${esc(e.desc)}</textarea>
+    <label>시간대 (이름을 바꾸면 이미 신청한 기록도 함께 바뀌어요)</label>
+    ${e.slots.map((s, i) => `<input class="e_slot" style="margin-bottom:8px" value="${esc(s)}" placeholder="시간대 ${i + 1}">`).join('')}
+    <button class="btn sm" onclick="keepEdit();ED.slots.push('');renderModal()">＋ 시간대 추가</button>
+    <div class="grid2"><div><label>신청 마감일</label><input id="e_dead" type="date" value="${esc(e.deadline)}"></div><div><label>정원 (시간대마다)</label><input id="e_cap" type="number" inputmode="numeric" placeholder="비우면 제한 없음" value="${esc(e.cap)}"></div></div>`;
+  return `<h3>${name} 수정</h3>
+    <label><b style="color:var(--navy)">대상</b> · 반을 누르면 체크, 다시 누르면 해제돼요</label>${pickerHTML('e')}
+    <div style="margin-top:14px;padding-top:6px;border-top:1px solid var(--line)">${f}</div>
+    <button class="btn primary full" ${imgBusy ? 'disabled' : ''} onclick="saveEdit()">${imgBusy ? '저장하는 중…' : '수정 저장'}</button>
+    <button class="btn full" onclick="ED=null;closeModal()">취소</button>`;
+}
+async function saveEdit() {
+  keepEdit();
+  const e = ED; if (!e) return;
+  const title = e.title.trim(); if (!title) return toast('이름을 입력해 주세요.');
+  const t = pkTarget('e'); if (!t && e.kind !== 'notice') return toast('대상을 골라 주세요.');
+  const tg = t || { cls: '', sids: '' };
+  if (e.kind === 'notice') {
+    const n = S.notices[e.id]; let img = n.img || '';
+    const f = ($('#e_file') || {}).files && $('#e_file').files[0];
+    if (f) {
+      imgBusy = true; renderModal();
+      try { const data = await shrinkImage(f); const r = await call('setNoticeImage', { nid: e.id, data }); img = r.ver; imgs['n_' + e.id] = { ver: img, data }; LS.set('raon_img_n_' + e.id, { ver: img, data }); }
+      catch (err) { imgBusy = false; renderModal(); return toast(err.message); }
+      imgBusy = false;
+    } else if (e.dropImg) img = '';
+    ED = null; closeModal();
+    try { await put('notices', e.id, { ...n, title, body: e.body.trim(), cls: tg.cls, sids: tg.sids, img }); toast('알림을 수정했어요'); } catch (err) {}
+    return;
+  }
+  if (e.kind === 'hw') {
+    const a = S.assignments[e.id]; ED = null; closeModal();
+    try { await put('assignments', e.id, { ...a, title, desc: e.desc.trim(), due: e.due, cls: tg.cls, sids: tg.sids }); toast('과제를 수정했어요'); } catch (err) {}
+    return;
+  }
+  const l = S.lectures[e.id], oldS = slotsOf(l), newS = e.slots.map(s => s.trim().replace(new RegExp('[|]', 'g'), ' '));
+  const ops = [];
+  for (let i = 0; i < Math.max(oldS.length, newS.length); i++) {
+    const from = oldS[i], to = newS[i];
+    const users = Object.entries(S.apps || {}).filter(([, a]) => a.lid === e.id && a.slot === from);
+    if (from && !to && users.length && String(l.slots || '')) return toast(`"${from}"에 신청한 학생이 있어서 이 시간대는 지울 수 없어요.`);
+    if (from && to && from !== to) users.forEach(([k, a]) => ops.push(P('apps', k, { ...a, slot: to })));
+  }
+  const kept = newS.filter(Boolean);
+  ops.unshift(P('lectures', e.id, { ...l, title, desc: e.desc.trim(), deadline: e.deadline, cap: parseInt(e.cap, 10) || 0, slots: kept.join('|'), cls: tg.cls, sids: tg.sids }));
+  ED = null; closeModal();
+  try { await commit(ops); toast('특강을 수정했어요'); } catch (err) {}
 }
 function openModal(fn) { modalFn = fn; renderModal(); }
 function closeModal() { modalFn = null; armed = ''; $('#modal').innerHTML = ''; }
