@@ -157,7 +157,7 @@ const LS = {
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 
 
-const APP_VER = '2026.11.28-2';
+const APP_VER = '2026.11.28-3';
 const COLS = ['students', 'assignments', 'subs', 'points', 'tests', 'scores', 'notices', 'lectures', 'apps', 'config'];
 const S = { avgs: null }; COLS.forEach(c => S[c] = {});
 let loaded = false, loadNote = '', info = null, syncing = 0, loadSeq = 0;
@@ -949,7 +949,7 @@ function openNoticeModal(id) {
     return `<h3>${esc(n.title)}</h3><div class="muted">${n.at ? fmtTime(n.at).split(' ')[0] : ''}${sess.role === 'teacher' ? ' · ' + hwTargetBadge(n) : ''}</div>
       ${n.body ? `<div class="memo" style="margin-top:12px;font-size:15px">${esc(n.body)}</div>` : ''}
       ${n.img ? (st.data ? `${zoomBtn}<div class="zoomwrap"><img src="${st.data}" style="width:100%"></div>` : `<div class="imgph">${st.failed ? '이미지를 불러오지 못했어요.' : '이미지를 불러오는 중…'}</div>`) : ''}
-      ${sess.role === 'teacher' ? `<button class="btn full" onclick="openEdit('notice','${id}')">✏️ 수정</button><button class="btn danger full" onclick="arm('dn${id}',()=>{closeModal();delNotice('${id}')})">${armed === 'dn' + id ? '한 번 더 누르면 삭제돼요' : '이 알림 삭제'}</button>` : ''}`;
+      ${sess.role === 'teacher' ? `<button class="btn amber full" onclick="copyShare('notice','${id}')">📋 카톡 공유 문구 복사</button><button class="btn full" onclick="openEdit('notice','${id}')">✏️ 수정</button><button class="btn danger full" onclick="arm('dn${id}',()=>{closeModal();delNotice('${id}')})">${armed === 'dn' + id ? '한 번 더 누르면 삭제돼요' : '이 알림 삭제'}</button>` : ''}`;
   });
   render();
 }
@@ -978,7 +978,7 @@ function noticeBlock(student) {
   const legacy = student ? imgList().map(m => `<div class="ntc" onclick="zoomImage('${m.id}')"><div class="row between"><b class="grow">🗓️ ${esc(m.title || '분기 안내')}</b><span class="muted">눌러서 보기 ›</span></div></div>`).join('') : '';
   const items = legacy + list.map(n => `<div class="ntc" onclick="openNoticeModal('${n.id}')">
       <div class="row between"><b class="grow">${n.img ? '🖼️ ' : ''}${esc(n.title)}${isNew(n) ? '<span class="new">NEW</span>' : ''}</b>${student ? '' : hwTargetBadge(n) + ' '}<span class="muted">${n.at ? fmtTime(n.at).split(' ')[0] : ''} ›</span></div>
-      ${!student ? `<div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn sm danger" onclick="event.stopPropagation();arm('dn${n.id}',()=>delNotice('${n.id}'))">${armed === 'dn' + n.id ? '한 번 더 누르면 삭제' : '삭제'}</button></div>` : ''}
+      ${!student ? `<div class="row" style="justify-content:flex-end;margin-top:6px;gap:6px"><button class="btn sm amber" onclick="event.stopPropagation();copyShare('notice','${n.id}')">📋 카톡 문구</button><button class="btn sm danger" onclick="event.stopPropagation();arm('dn${n.id}',()=>delNotice('${n.id}'))">${armed === 'dn' + n.id ? '한 번 더 누르면 삭제' : '삭제'}</button></div>` : ''}
     </div>`).join('');
   return (items || !student ? `<h2>📢 알림사항</h2><div class="card list">${items || '<div class="empty">아직 알림사항이 없어요.</div>'}</div>` : '');
 }
@@ -1024,7 +1024,7 @@ async function addNotice() {
     imgBusy = false;
   }
   formDirty = false; PK.notice = new Set(); nDraft = { title: '', body: '' };
-  try { await put('notices', id, { title, body, cls: t.cls, sids: t.sids, img, at: Date.now() }); toast('알림을 올렸어요'); render(); } catch (e) {}
+  try { await put('notices', id, { title, body, cls: t.cls, sids: t.sids, img, at: Date.now() }); toast('알림을 올렸어요. 「📋 카톡 문구」로 단톡방에 알릴 수 있어요'); render(); } catch (e) {}
 }
 async function delNotice(id) { try { await del('notices', id); toast('삭제했어요'); } catch (e) {} }
 function shrinkImage(file) {
@@ -1101,6 +1101,7 @@ function tLectures() {
         ${l.desc ? `<div class="memo">${esc(l.desc)}</div>` : ''}
         ${slotsOf(l).map(sl => { const who = apps.filter(a => a.slot === sl).map(a => (S.students[a.sid] || {}).name || '삭제된 학생'); return `<div class="hwrow" style="cursor:default"><div class="row between"><b class="grow">${esc(sl)}</b><b>${who.length}${cap ? '/' + cap : ''}명</b></div>${cap ? `<div class="bar"><i style="width:${Math.min(100, who.length / cap * 100)}%"></i></div>` : ''}<div class="muted" style="margin-top:4px">${who.length ? who.map(esc).join(', ') : '아직 신청자가 없어요'}</div></div>`; }).join('')}
         ${none.length ? `<div class="muted" style="margin-top:8px">미신청 ${none.length}명: ${none.map(s => esc(s.name)).join(', ')}</div>` : ''}
+        <button class="btn amber full" onclick="copyShare('lec','${l.id}')">📋 카톡 공유 문구 복사</button>
         <button class="btn full" onclick="openEdit('lec','${l.id}')">✏️ 수정</button>
         <div class="grid2" style="margin-top:8px"><button class="btn" onclick="toggleLecClose('${l.id}')">${l.closed === 'y' ? '다시 열기' : '지금 마감하기'}</button><button class="btn danger" onclick="arm('dl${l.id}',()=>delLecture('${l.id}'))">${armed === 'dl' + l.id ? '한 번 더 누르면 삭제' : '삭제'}</button></div></div>`;
     }).join('') : `<div class="card empty">아직 만든 특강이 없어요.</div>`}`;
@@ -1221,6 +1222,22 @@ async function saveEdit() {
   ops.unshift(P('lectures', e.id, { ...l, title, desc: e.desc.trim(), deadline: e.deadline, cap: parseInt(e.cap, 10) || 0, slots: kept.join('|'), cls: tg.cls, sids: tg.sids }));
   ED = null; closeModal();
   try { await commit(ops); toast('특강을 수정했어요'); } catch (err) {}
+}
+const APP_LINK = () => location.href.split('#')[0].split('?')[0];
+function shareText(kind, id) {
+  if (kind === 'lec') {
+    const l = S.lectures[id]; if (!l) return '';
+    const sl = String(l.slots || '').split('|').filter(Boolean);
+    return `🎓 [The 라온수학] ${l.title} 신청 안내\n` + (l.desc ? l.desc.slice(0, 120) + (l.desc.length > 120 ? '…' : '') + '\n' : '') + (sl.length ? '시간대: ' + sl.join(' / ') + '\n' : '') + (l.deadline ? '신청 마감: ' + md(l.deadline) + '\n' : '') + (+l.cap ? `정원: 시간대별 ${l.cap}명 (선착순)\n` : '') + `👉 앱에서 신청해 주세요: ${APP_LINK()}`;
+  }
+  const n = S.notices[id]; if (!n) return '';
+  return `📢 [The 라온수학] ${n.title}\n` + (n.body ? n.body.slice(0, 120) + (n.body.length > 120 ? '…' : '') + '\n' : '') + (n.img ? '🖼️ 안내 이미지가 함께 있어요.\n' : '') + `👉 앱에서 확인해 주세요: ${APP_LINK()}`;
+}
+async function copyShare(kind, id) {
+  const t = shareText(kind, id); if (!t) return;
+  try { await navigator.clipboard.writeText(t); toast('카톡 공유 문구를 복사했어요. 단톡방에 붙여 넣어 주세요.'); return; } catch (e) {}
+  try { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); if (ok) { toast('카톡 공유 문구를 복사했어요. 단톡방에 붙여 넣어 주세요.'); return; } } catch (e) {}
+  openModal(() => `<h3>카톡 공유 문구</h3><div class="muted">자동 복사가 안 돼서 직접 길게 눌러 복사해 주세요.</div><textarea style="min-height:180px;margin-top:10px">${esc(t)}</textarea>`);
 }
 function openModal(fn) { modalFn = fn; renderModal(); }
 function closeModal() { modalFn = null; armed = ''; $('#modal').innerHTML = ''; }
